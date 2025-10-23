@@ -690,21 +690,20 @@ const isLight = effectiveTheme === 'light'
                         </div>
                       </td>
                       {row.values.map((v, j) => {
-                        let displayVal: number | null = v
-                        if (deltaMode && i > 0) {
-                          const prev = stairData[i - 1].values[j]
-                          const diff = calcDelta(v, prev)
-                          displayVal = diff
-                        }
-                        
+                        // Calculate delta against previous row for this month
+                        const prev = i > 0 ? stairData[i - 1].values[j] : null
+                        const delta = calcDelta(v, prev)
+
                         // Check if this column is within the active range for this order
                         const currentMonth = months[j]
-                        const isInRange = row.firstMonth && row.lastMonth && 
-                          compareMonths(currentMonth, row.firstMonth) >= 0 && 
+                        const isInRange = row.firstMonth && row.lastMonth &&
+                          compareMonths(currentMonth, row.firstMonth) >= 0 &&
                           compareMonths(currentMonth, row.lastMonth) <= 0
-                        
-                        const color = getTextColorClasses(deltaMode, displayVal)
-                        
+
+                        // Colors
+                        const baseTextColor = getTextColorClasses(false, v ?? null)
+                        const deltaTextColor = getTextColorClasses(true, delta ?? null)
+
                         // Dynamic background colors based on theme
                         const getBgColor = () => {
                           if (v) {
@@ -713,29 +712,45 @@ const isLight = effectiveTheme === 'light'
                           // Empty cells always white in light theme
                           return effectiveTheme === 'light' ? 'white' : 'transparent'
                         }
-                        
+
                         const getBorderColor = () => {
                           return effectiveTheme === 'light' ? 'border-gray-200' : 'border-neutral-800'
                         }
-                        
-                        const getEmptyTextColor = () => {
-                          if (!v) {
-                            // Empty cells always subtle in light theme
-                            return effectiveTheme === 'light' ? 'text-gray-300' : 'text-neutral-800'
-                          }
-                          return color
+
+                        // Format helpers
+                        const formatNumber = (num: number | null) =>
+                          num == null ? '' : num.toLocaleString('id-ID')
+
+                        const formatDelta = (num: number | null) => {
+                          if (num == null) return ''
+                          const absStr = Math.abs(num).toLocaleString('id-ID')
+                          return `${num > 0 ? '+' : num < 0 ? '-' : ''}${num === 0 ? '0' : absStr}`
                         }
-                        
+
+                        const showDelta = deltaMode && i > 0 && delta != null
+
                         return (
                           <td
                             key={j}
-                            className={`px-3 py-2 border-b text-right ${getBorderColor()} ${getEmptyTextColor()}`}
-                            style={{ 
+                            className={`px-3 py-2 border-b text-right ${getBorderColor()}`}
+                            style={{
                               backgroundColor: getBgColor(),
                               opacity: effectiveTheme === 'light' ? 1 : (isInRange ? 1 : 0.3)
                             }}
                           >
-                            {displayVal == null ? '' : displayVal.toLocaleString('id-ID')}
+                            <div className="leading-tight">
+                              <div className={v == null
+                                ? (effectiveTheme === 'light' ? 'text-gray-300' : 'text-neutral-800')
+                                : baseTextColor
+                              }>
+                                {formatNumber(v)}
+                              </div>
+                              {showDelta && (
+                                <div className={`mt-0.5 text-[11px] ${deltaTextColor}`}>
+                                  Δ {formatDelta(delta)}
+                                </div>
+                              )}
+                            </div>
                           </td>
                         )
                       })}
