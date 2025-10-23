@@ -31,6 +31,13 @@ interface SKU {
   order: string
 }
 
+interface StairDataItem {
+  orderDate: string
+  values: (number | null)[]
+  firstMonth?: string
+  lastMonth?: string
+}
+
 export default function Home() {
   const [selectedSKU, setSelectedSKU] = useState<string>('')
   const [skuList, setSkuList] = useState<SKU[]>([])
@@ -192,11 +199,11 @@ export default function Home() {
   }, [selectedSKU])
 
   // Group forecast data by order date and create stair pattern
-  const getStairData = () => {
+  const getStairData = (): StairDataItem[] => {
     const orderDates = sortOrderDates(Array.from(new Set(forecastData.map(d => d.orderDate))))
     console.log('Order dates after sorting:', orderDates) // Debug log
-    
-    const stairData = []
+
+    const stairData: StairDataItem[] = []
 
     orderDates.forEach(orderDate => {
       const orderData = forecastData.filter(d => d.orderDate === orderDate)
@@ -342,7 +349,7 @@ export default function Home() {
       
       orderDates.forEach(orderDate => {
         const orderData = skuForecastData.filter(d => d.orderDate === orderDate)
-        const values = [sku.partNumber, sku.partName, sku.order, orderDate]
+        const values: (string | number)[] = [sku.partNumber, sku.partName, sku.order, orderDate]
         
         currentMonths.forEach(month => {
           const monthData = orderData.find(d => d.month === month)
@@ -382,7 +389,7 @@ export default function Home() {
       const orderDates = sortOrderDates(Array.from(new Set(skuForecastData.map(d => d.orderDate))))
       
       // Build stair data for delta calculation
-      const stairData = []
+      const stairData: Array<{ orderDate: string; values: (number | null)[] }> = []
       orderDates.forEach(orderDate => {
         const orderData = skuForecastData.filter(d => d.orderDate === orderDate)
         const values = currentMonths.map(month => {
@@ -394,7 +401,7 @@ export default function Home() {
       
       // Add delta rows
       stairData.forEach((row, i) => {
-        const deltaValues = [sku.partNumber, sku.partName, sku.order, row.orderDate]
+        const deltaValues: (string | number)[] = [sku.partNumber, sku.partName, sku.order, row.orderDate]
         
         currentMonths.forEach((month, j) => {
           if (i === 0) {
@@ -405,7 +412,7 @@ export default function Home() {
             const currentVal = row.values[j]
             const prevVal = stairData[i - 1].values[j]
             const delta = calcDelta(currentVal, prevVal)
-            deltaValues.push(delta !== null ? delta : '')
+            deltaValues.push(delta !== null ? delta : 0) // Use 0 for null delta values
           }
         })
         
@@ -598,11 +605,11 @@ export default function Home() {
                         </div>
                       </td>
                       {row.values.map((v, j) => {
-                        let displayVal = v
+                        let displayVal: number | null = v
                         if (deltaMode && i > 0) {
                           const prev = stairData[i - 1].values[j]
                           const diff = calcDelta(v, prev)
-                          displayVal = diff != null ? diff : ''
+                          displayVal = diff
                         }
                         
                         // Check if this column is within the active range for this order
@@ -643,7 +650,7 @@ export default function Home() {
                               opacity: theme === 'light' ? 1 : (isInRange ? 1 : 0.3)
                             }}
                           >
-                            {v == null ? '' : displayVal.toLocaleString('id-ID')}
+                            {displayVal == null ? '' : displayVal.toLocaleString('id-ID')}
                           </td>
                         )
                       })}
@@ -679,17 +686,11 @@ export default function Home() {
             }
           >
             <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
-            Refresh
+            Refresh Data
           </Button>
         </div>
 
         {/* Info */}
-        <div className={theme === 'light' ? 'text-gray-600 text-xs' : 'text-neutral-400 text-xs'}>
-          <p>
-            Semua nilai diambil langsung dari data yang di-upload. Tidak ada forecast otomatis.
-            Saat <b>Delta ON</b>, setiap sel menunjukkan perubahan (Δ) terhadap snapshot order sebelumnya.
-          </p>
-        </div>
       </div>
     </div>
   )
