@@ -9,8 +9,8 @@ const months = [
 
 const seedData = [
   {
-    partNumber: '005167',
-    partName: 'GARN R - FR SIDE OUT SSUV',
+    partNumber: '001234',
+    partName: 'FINISH GOOD 1',
     order: 'ORDER001',
     forecastData: [
       // Order Jul-24
@@ -63,8 +63,8 @@ const seedData = [
     ]
   },
   {
-    partNumber: '005168',
-    partName: 'GARN L - FR SIDE OUT SSUV',
+    partNumber: '001235',
+    partName: 'FINISH GOOD 2',
     order: 'ORDER002',
     forecastData: [
       // Order Jul-24
