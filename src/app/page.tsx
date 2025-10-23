@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Switch } from '@/components/ui/switch'
 import { Upload, Download, RefreshCw, Sun, Moon } from 'lucide-react'
 import { useTheme } from 'next-themes'
-import * as XLSX from 'xlsx'
+import * as XLSX from 'xlsx-js-style'
 
 interface ForecastData {
   id: string
@@ -46,58 +46,61 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [mounted, setMounted] = useState(false)
-  const { theme, setTheme } = useTheme()
+  const { theme, resolvedTheme, setTheme } = useTheme()
 
   // Handle mounted state to avoid hydration mismatch
   useEffect(() => {
     setMounted(true)
   }, [])
 
+  const effectiveTheme = mounted ? (resolvedTheme ?? 'light') : 'light'
+const isLight = effectiveTheme === 'light'
+
   // Theme helper functions
   const getThemeClasses = () => {
-    if (!mounted) return 'bg-neutral-950 text-neutral-100'
-    
-    if (theme === 'light') {
+    if (!mounted) return 'bg-white text-gray-900'
+
+    if (effectiveTheme === 'light') {
       return 'bg-white text-gray-900'
     }
-    
+
     return 'bg-neutral-950 text-neutral-100'
   }
 
   const getCardClasses = () => {
-    if (!mounted) return 'bg-neutral-900 border-neutral-800'
-    
-    if (theme === 'light') {
+    if (!mounted) return 'bg-white border-gray-200'
+
+    if (effectiveTheme === 'light') {
       return 'bg-white border-gray-200' // Simple white cards
     }
-    
+
     return 'bg-neutral-900 border-neutral-800'
   }
 
   const getTableHeaderClasses = () => {
-    if (!mounted) return 'bg-neutral-800 text-neutral-100'
-    
-    if (theme === 'light') {
+    if (!mounted) return 'bg-gray-100 text-gray-900'
+
+    if (effectiveTheme === 'light') {
       return 'bg-gray-100 text-gray-900'
     }
-    
+
     return 'bg-neutral-800 text-neutral-100'
   }
 
   const getTableRowClasses = (index: number) => {
-    if (!mounted) return index % 2 === 0 ? 'bg-neutral-900' : 'bg-neutral-900/70'
-    
-    if (theme === 'light') {
+    if (!mounted) return 'bg-white'
+
+    if (effectiveTheme === 'light') {
       return 'bg-white' // Always white for light theme
     }
-    
+
     return index % 2 === 0 ? 'bg-neutral-900' : 'bg-neutral-900/70'
   }
 
   const getTextColorClasses = (isDelta: boolean, value: number | null | undefined) => {
-    if (!mounted) return isDelta && value ? (value > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-neutral-100'
+    if (!mounted) return isDelta && value ? (value > 0 ? 'text-green-600' : 'text-red-600') : 'text-gray-900'
 
-    if (theme === 'light') {
+    if (effectiveTheme === 'light') {
       if (isDelta && value) {
         return value > 0 ? 'text-green-600' : value < 0 ? 'text-red-600' : 'text-gray-900'
       }
@@ -112,12 +115,12 @@ export default function Home() {
   }
 
   const getSubTextColorClasses = () => {
-    if (!mounted) return 'text-neutral-500'
-    
-    if (theme === 'light') {
+    if (!mounted) return 'text-gray-500'
+
+    if (effectiveTheme === 'light') {
       return 'text-gray-500'
     }
-    
+
     return 'text-neutral-500'
   }
 
@@ -329,20 +332,14 @@ export default function Home() {
   }
 
   const handleExport = () => {
-    // Create Excel workbook
-    const wb = XLSX.utils.book_new()
-    
     // Get current months for headers
     const currentMonths = getDynamicMonths()
     
-    // Prepare data for all SKUs
+    // Prepare data for all SKUs (Forecast)
     const allData: any[] = []
-    
-    // Add headers for Forecast Data
     const headers = ['PART NUMBER', 'PART NAME', 'ORDER', 'ORDER DATE', ...currentMonths]
     allData.push(headers)
     
-    // Add forecast data for each SKU
     skuList.forEach(sku => {
       const skuForecastData = forecastData.filter(d => d.skuId === sku.id)
       const orderDates = sortOrderDates(Array.from(new Set(skuForecastData.map(d => d.orderDate))))
@@ -353,66 +350,43 @@ export default function Home() {
         
         currentMonths.forEach(month => {
           const monthData = orderData.find(d => d.month === month)
-          values.push(monthData ? monthData.value : '')
+          values.push(monthData ? Number(monthData.value) : '')
         })
         
         allData.push(values)
       })
     })
     
-    // Create forecast worksheet
-    const forecastWs = XLSX.utils.aoa_to_sheet(allData)
-    
-    // Set column widths for forecast worksheet
-    const colWidths = [
-      { wch: 15 }, // PART NUMBER
-      { wch: 30 }, // PART NAME
-      { wch: 10 }, // ORDER
-      { wch: 12 }, // ORDER DATE
-      ...currentMonths.map(() => ({ wch: 12 })) // Month columns
-    ]
-    forecastWs['!cols'] = colWidths
-    
-    // Add forecast worksheet to workbook
-    XLSX.utils.book_append_sheet(wb, forecastWs, 'Forecast Data')
-    
-    // Create Delta Data Worksheet
+    // Prepare Delta Data (to be placed below Forecast)
     const deltaData: any[] = []
-    
-    // Add headers for Delta Data
     const deltaHeaders = ['PART NUMBER', 'PART NAME', 'ORDER', 'ORDER DATE', ...currentMonths.map(m => `${m} (Δ)`)]
     deltaData.push(deltaHeaders)
     
-    // Calculate and add delta data for each SKU
     skuList.forEach(sku => {
       const skuForecastData = forecastData.filter(d => d.skuId === sku.id)
       const orderDates = sortOrderDates(Array.from(new Set(skuForecastData.map(d => d.orderDate))))
       
-      // Build stair data for delta calculation
       const stairData: Array<{ orderDate: string; values: (number | null)[] }> = []
       orderDates.forEach(orderDate => {
         const orderData = skuForecastData.filter(d => d.orderDate === orderDate)
         const values = currentMonths.map(month => {
           const data = orderData.find(d => d.month === month)
-          return data ? data.value : null
+          return data ? Number(data.value) : null
         })
         stairData.push({ orderDate, values })
       })
       
-      // Add delta rows
       stairData.forEach((row, i) => {
-        const deltaValues: (string | number)[] = [sku.partNumber, sku.partName, sku.order, row.orderDate]
+        const deltaValues: (string | number | '')[] = [sku.partNumber, sku.partName, sku.order, row.orderDate]
         
-        currentMonths.forEach((month, j) => {
+        currentMonths.forEach((_, j) => {
           if (i === 0) {
-            // First row, no delta
-            deltaValues.push('')
+            deltaValues.push('') // empty for first row
           } else {
-            // Calculate delta
             const currentVal = row.values[j]
             const prevVal = stairData[i - 1].values[j]
             const delta = calcDelta(currentVal, prevVal)
-            deltaValues.push(delta !== null ? delta : 0) // Use 0 for null delta values
+            deltaValues.push(delta !== null ? Number(delta) : '')
           }
         })
         
@@ -420,14 +394,125 @@ export default function Home() {
       })
     })
     
-    // Create delta worksheet
-    const deltaWs = XLSX.utils.aoa_to_sheet(deltaData)
-    deltaWs['!cols'] = colWidths // Same column widths
+    // Combine into single sheet
+    const combinedData: any[] = [
+      ...allData,
+      [],
+      ...deltaData
+    ]
     
-    // Add delta worksheet to workbook
-    XLSX.utils.book_append_sheet(wb, deltaWs, 'Delta Data')
+    const ws = XLSX.utils.aoa_to_sheet(combinedData)
     
-    // Generate Excel file and download
+    // Column widths
+    const colWidths = [
+      { wch: 15 }, // PART NUMBER
+      { wch: 30 }, // PART NAME
+      { wch: 10 }, // ORDER
+      { wch: 12 }, // ORDER DATE
+      ...currentMonths.map(() => ({ wch: 12 })) // Month columns
+    ]
+    ws['!cols'] = colWidths
+    
+    // Styling with xlsx-js-style
+    const totalCols = 4 + currentMonths.length
+    const forecastRows = allData.length
+    const deltaHeaderRow = forecastRows + 2            // 1-based row index for Delta header in Excel
+    const deltaDataStartRow = forecastRows + 3         // 1-based start of Delta data
+    const totalRows = combinedData.length
+    
+    // Define borders
+    const thinBorder = {
+      top: { style: 'thin', color: { rgb: 'FF000000' } },
+      left: { style: 'thin', color: { rgb: 'FF000000' } },
+      bottom: { style: 'thin', color: { rgb: 'FF000000' } },
+      right: { style: 'thin', color: { rgb: 'FF000000' } },
+    }
+    
+    // Colors for delta
+    const NEG_FILL = 'FFFFC7CE' // light red
+    const NEG_FONT = 'FF9C0006' // dark red
+    const POS_FILL = 'FFC6EFCE' // light green
+    const POS_FONT = 'FF006100' // dark green
+    
+    // Helper to get or create a cell
+    const ensureCell = (r0: number, c0: number) => {
+      const addr = XLSX.utils.encode_cell({ r: r0, c: c0 })
+      if (!ws[addr]) ws[addr] = { t: 's', v: '' }
+      return addr
+    }
+    
+    // Apply borders and alignment for Forecast (including header)
+    for (let r = 0; r < forecastRows; r++) {
+      for (let c = 0; c < totalCols; c++) {
+        const addr = ensureCell(r, c)
+        const cell: any = ws[addr]
+        const isNumberColumn = c >= 4
+        // number format
+        if (typeof cell.v === 'number') {
+          cell.t = 'n'
+          cell.z = '#,##0'
+        }
+        // header bold
+        const isHeader = r === 0
+        cell.s = {
+          ...(cell.s || {}),
+          border: thinBorder,
+          alignment: { horizontal: isNumberColumn ? 'right' : 'left', vertical: 'center' },
+          ...(isHeader ? { font: { bold: true } } : {})
+        }
+      }
+    }
+    
+    // Delta header styling
+    for (let c = 0; c < totalCols; c++) {
+      const addr = ensureCell(deltaHeaderRow - 1, c) // convert to 0-based
+      const cell: any = ws[addr]
+      const isNumberColumn = c >= 4
+      cell.s = {
+        ...(cell.s || {}),
+        border: thinBorder,
+        alignment: { horizontal: isNumberColumn ? 'right' : 'left', vertical: 'center' },
+        font: { bold: true }
+      }
+    }
+    
+    // Delta data styling with conditional colors
+    for (let r1 = deltaDataStartRow; r1 <= totalRows; r1++) {
+      const r0 = r1 - 1 // zero-based
+      for (let c = 0; c < totalCols; c++) {
+        const addr = ensureCell(r0, c)
+        const cell: any = ws[addr]
+        const isNumberColumn = c >= 4
+        // Border + alignment
+        cell.s = {
+          ...(cell.s || {}),
+          border: thinBorder,
+          alignment: { horizontal: isNumberColumn ? 'right' : 'left', vertical: 'center' },
+        }
+        // Number format and conditional coloring
+        if (isNumberColumn && typeof cell.v === 'number') {
+          cell.t = 'n'
+          cell.z = '#,##0'
+          if (cell.v > 0) {
+            cell.s = {
+              ...(cell.s || {}),
+              fill: { patternType: 'solid', fgColor: { rgb: POS_FILL } },
+              font: { color: { rgb: POS_FONT } }
+            }
+          } else if (cell.v < 0) {
+            cell.s = {
+              ...(cell.s || {}),
+              fill: { patternType: 'solid', fgColor: { rgb: NEG_FILL } },
+              font: { color: { rgb: NEG_FONT } }
+            }
+          }
+        }
+      }
+    }
+    
+    // Build and download
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Forecast & Delta')
     const fileName = `stair_forecast_data_${new Date().toISOString().split('T')[0]}.xlsx`
     XLSX.writeFile(wb, fileName)
   }
@@ -441,25 +526,25 @@ export default function Home() {
         {/* Header */}
         <div className="flex justify-between items-center">
           <div>
-            <h1 className={`text-3xl font-bold mb-2 ${theme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
+            <h1 className={`text-3xl font-bold mb-2 ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
               Stair Forecast Dashboard
             </h1>
-            <p className={theme === 'light' ? 'text-gray-600' : 'text-neutral-400'}>
+            <p className={effectiveTheme === 'light' ? 'text-gray-600' : 'text-neutral-400'}>
               Data-based forecast with Delta {deltaMode ? 'ON' : 'OFF'}
             </p>
           </div>
           <div className="flex items-center space-x-3">
             {/* Theme Toggle */}
             <button
-              onClick={() => setTheme(theme === 'light' ? 'dark' : 'light')}
+              onClick={() => setTheme(effectiveTheme === 'light' ? 'dark' : 'light')}
               className={`p-2 rounded-lg transition-colors ${
-                theme === 'light' 
+                effectiveTheme === 'light' 
                   ? 'bg-gray-200 hover:bg-gray-300 text-gray-700' 
                   : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-300'
               }`}
               aria-label="Toggle theme"
             >
-              {theme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+              {effectiveTheme === 'light' ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
             </button>
             
             {/* Delta Toggle */}
@@ -468,7 +553,7 @@ export default function Home() {
               className={`px-4 py-2 rounded-xl transition font-medium ${
                 deltaMode 
                   ? 'bg-emerald-600 hover:bg-emerald-500 text-white' 
-                  : theme === 'light'
+                  : effectiveTheme === 'light'
                     ? 'bg-gray-200 hover:bg-gray-300 text-gray-700'
                     : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-100'
               }`}
@@ -483,25 +568,25 @@ export default function Home() {
           {/* SKU Selection */}
           <Card className={getCardClasses()}>
             <CardHeader>
-              <CardTitle className={`text-lg ${theme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
+              <CardTitle className={`text-lg ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
                 Select SKU
               </CardTitle>
             </CardHeader>
             <CardContent>
               <Select value={selectedSKU} onValueChange={setSelectedSKU}>
-                <SelectTrigger className={theme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}>
+                <SelectTrigger className={effectiveTheme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}>
                   <SelectValue placeholder="Choose SKU" />
                 </SelectTrigger>
-                <SelectContent className={theme === 'light' ? 'bg-white border-gray-300' : 'bg-neutral-800 border-neutral-700'}>
+                <SelectContent className={effectiveTheme === 'light' ? 'bg-white border-gray-300' : 'bg-neutral-800 border-neutral-700'}>
                   {skuList.map((sku) => (
-                    <SelectItem key={sku.id} value={sku.id} className={theme === 'light' ? 'text-gray-900' : 'text-neutral-100'}>
+                    <SelectItem key={sku.id} value={sku.id} className={effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}>
                       {sku.partNumber} - {sku.partName}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
               {selectedSKUData && (
-                <div className={`mt-3 text-sm ${theme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
+                <div className={`mt-3 text-sm ${effectiveTheme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
                   <p><strong>Part Number:</strong> {selectedSKUData.partNumber}</p>
                   <p><strong>Part Name:</strong> {selectedSKUData.partName}</p>
                   <p><strong>Order:</strong> {selectedSKUData.order}</p>
@@ -513,13 +598,13 @@ export default function Home() {
           {/* Upload Data */}
           <Card className={getCardClasses()}>
             <CardHeader>
-              <CardTitle className={`text-lg ${theme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
+              <CardTitle className={`text-lg ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
                 Upload Data
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
               <div>
-                <Label htmlFor="file-upload" className={theme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
+                <Label htmlFor="file-upload" className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
                   Choose CSV file
                 </Label>
                 <Input
@@ -527,11 +612,11 @@ export default function Home() {
                   type="file"
                   accept=".csv"
                   onChange={handleFileUpload}
-                  className={`mt-1 ${theme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}`}
+                  className={`mt-1 ${effectiveTheme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}`}
                 />
               </div>
               {uploadFile && (
-                <div className={`text-sm ${theme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
+                <div className={`text-sm ${effectiveTheme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
                   Selected: {uploadFile.name}
                 </div>
               )}
@@ -539,7 +624,7 @@ export default function Home() {
                 onClick={handleUploadSubmit} 
                 disabled={!uploadFile || isLoading}
                 className={`w-full ${
-                  theme === 'light' 
+                  effectiveTheme === 'light' 
                     ? 'bg-gray-800 hover:bg-gray-700 text-white' 
                     : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-100'
                 }`}
@@ -558,13 +643,13 @@ export default function Home() {
         {/* Stair Forecast Table */}
         <Card className={getCardClasses()}>
           <CardHeader>
-            <CardTitle className={`text-xl ${theme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
+            <CardTitle className={`text-xl ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
               Stair Forecast Data
             </CardTitle>
           </CardHeader>
           <CardContent>
             <div className={`overflow-auto border rounded-2xl ${
-              theme === 'light' 
+              effectiveTheme === 'light' 
                 ? 'border-gray-200 bg-white' 
                 : 'border-neutral-800 bg-neutral-900'
             }`}>
@@ -572,7 +657,7 @@ export default function Home() {
                 <thead>
                   <tr className={getTableHeaderClasses()}>
                     <th className={`sticky left-0 px-3 py-2 border-b text-left ${
-                      theme === 'light' 
+                      effectiveTheme === 'light' 
                         ? 'bg-gray-100 border-gray-200 text-gray-900' 
                         : 'bg-neutral-800 border-neutral-700 text-neutral-100'
                     }`}>
@@ -580,7 +665,7 @@ export default function Home() {
                     </th>
                     {months.map((month) => (
                       <th key={month} className={`px-3 py-2 border-b whitespace-nowrap ${
-                        theme === 'light' 
+                        effectiveTheme === 'light' 
                           ? 'border-gray-200 text-gray-900' 
                           : 'border-neutral-700 text-neutral-100'
                       }`}>
@@ -593,7 +678,7 @@ export default function Home() {
                   {stairData.map((row, i) => (
                     <tr key={i} className={getTableRowClasses(i)}>
                       <td className={`sticky left-0 px-3 py-2 border-b font-medium ${
-                        theme === 'light' 
+                        effectiveTheme === 'light' 
                           ? 'bg-white border-gray-200 text-gray-900' 
                           : 'bg-neutral-900 border-neutral-800 text-neutral-100'
                       }`}>
@@ -623,20 +708,20 @@ export default function Home() {
                         // Dynamic background colors based on theme
                         const getBgColor = () => {
                           if (v) {
-                            return theme === 'light' ? '#f3f4f6' : '#202020'
+                            return effectiveTheme === 'light' ? '#f3f4f6' : '#202020'
                           }
                           // Empty cells always white in light theme
-                          return theme === 'light' ? 'white' : 'transparent'
+                          return effectiveTheme === 'light' ? 'white' : 'transparent'
                         }
                         
                         const getBorderColor = () => {
-                          return theme === 'light' ? 'border-gray-200' : 'border-neutral-800'
+                          return effectiveTheme === 'light' ? 'border-gray-200' : 'border-neutral-800'
                         }
                         
                         const getEmptyTextColor = () => {
                           if (!v) {
                             // Empty cells always subtle in light theme
-                            return theme === 'light' ? 'text-gray-300' : 'text-neutral-800'
+                            return effectiveTheme === 'light' ? 'text-gray-300' : 'text-neutral-800'
                           }
                           return color
                         }
@@ -647,7 +732,7 @@ export default function Home() {
                             className={`px-3 py-2 border-b text-right ${getBorderColor()} ${getEmptyTextColor()}`}
                             style={{ 
                               backgroundColor: getBgColor(),
-                              opacity: theme === 'light' ? 1 : (isInRange ? 1 : 0.3)
+                              opacity: effectiveTheme === 'light' ? 1 : (isInRange ? 1 : 0.3)
                             }}
                           >
                             {displayVal == null ? '' : displayVal.toLocaleString('id-ID')}
@@ -668,7 +753,7 @@ export default function Home() {
             variant="outline" 
             onClick={handleExport} 
             className={
-              theme === 'light'
+              effectiveTheme === 'light'
                 ? 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
                 : 'bg-neutral-800 border-neutral-700 text-neutral-100 hover:bg-neutral-700'
             }
@@ -680,7 +765,7 @@ export default function Home() {
             onClick={handleRefresh} 
             disabled={isLoading} 
             className={
-              theme === 'light'
+              effectiveTheme === 'light'
                 ? 'bg-gray-800 hover:bg-gray-700 text-white'
                 : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-100'
             }
