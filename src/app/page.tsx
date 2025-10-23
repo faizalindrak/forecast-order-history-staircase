@@ -88,16 +88,20 @@ export default function Home() {
   }
 
   const getTextColorClasses = (isDelta: boolean, value: number | null | undefined) => {
-    if (!mounted) return isDelta && value ? 'text-emerald-400' : 'text-neutral-100'
-    
+    if (!mounted) return isDelta && value ? (value > 0 ? 'text-emerald-400' : 'text-red-400') : 'text-neutral-100'
+
     if (theme === 'light') {
       if (isDelta && value) {
         return value > 0 ? 'text-green-600' : value < 0 ? 'text-red-600' : 'text-gray-900'
       }
       return 'text-gray-900'
     }
-    
-    return isDelta && value ? 'text-emerald-400' : 'text-neutral-100'
+
+    // Dark mode - differentiate between positive and negative delta values
+    if (isDelta && value) {
+      return value > 0 ? 'text-emerald-400' : value < 0 ? 'text-red-400' : 'text-neutral-100'
+    }
+    return 'text-neutral-100'
   }
 
   const getSubTextColorClasses = () => {
