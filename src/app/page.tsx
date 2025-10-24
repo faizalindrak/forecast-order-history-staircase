@@ -851,13 +851,6 @@ const isLight = effectiveTheme === 'light'
                       }`}>
                         <div className="flex flex-col gap-1">
                           <span>{row.orderDate}</span>
-                          <span className={`text-xs ${getSubTextColorClasses()}`}>
-                            Ship To: {row.shipToCode ?? 'Tidak ada' }
-                            {row.shipToName ? ` • ${row.shipToName}` : ''}
-                          </span>
-                          <span className={`text-xs ${getSubTextColorClasses()}`}>
-                            {row.firstMonth} - {row.lastMonth}
-                          </span>
                         </div>
                       </td>
                       {row.values.map((v, j) => {
