@@ -186,6 +186,7 @@ export async function POST(request: NextRequest) {
     const results = {
       skusCreated: 0,
       forecastEntriesCreated: 0,
+      forecastEntriesUpdated: 0,
       shipTosCreated: 0,
       errors: [] as string[]
     }
@@ -325,7 +326,13 @@ export async function POST(request: NextRequest) {
             }
           })
 
-          if (!existingEntry) {
+          if (existingEntry) {
+            await db.forecastEntry.update({
+              where: { id: existingEntry.id },
+              data: { value }
+            })
+            results.forecastEntriesUpdated++
+          } else {
             await db.forecastEntry.create({
               data: {
                 forecastVersionId: versionRecord.id,

@@ -11,6 +11,7 @@ import { useTheme } from 'next-themes'
 interface UploadSummary {
   skusCreated: number
   forecastEntriesCreated: number
+  forecastEntriesUpdated: number
   shipTosCreated: number
   errors: string[]
 }
@@ -200,6 +201,7 @@ export default function UploadPage() {
                 <ul className="mt-2 space-y-1 list-disc pl-5">
                   <li>SKU baru: {summary.skusCreated}</li>
                   <li>Entry forecast baru: {summary.forecastEntriesCreated}</li>
+                  <li>Entry forecast diperbarui: {summary.forecastEntriesUpdated}</li>
                   <li>Ship-to baru: {summary.shipTosCreated}</li>
                   {versionsUsed.length > 0 && (
                     <li>Versi digunakan: {versionsUsed.join(', ')}</li>
