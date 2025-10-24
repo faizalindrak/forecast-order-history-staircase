@@ -111,11 +111,12 @@ Bulk upsert forecast (masing-masing baris menyertakan `version`).
 ### POST `/api/upload`
 Memproses file CSV pada halaman upload.
 
-Format header:
+-Format header:
 ```
-PART NUMBER,PART NAME,ORDER,SHIP TO,ORDER DATE,ORDER VERSION,N,N+1,N+2,N+3,N+4,N+5,N+6
+PART NUMBER,PART NAME,ORDER,SHIP TO,SHIP TO NAME,ORDER DATE,ORDER VERSION,N,N+1,N+2,N+3,N+4,N+5,N+6
 ```
 - `SHIP TO` wajib diisi untuk mengidentifikasi tujuan pengiriman per SKU (gunakan kode unik per SKU, contoh: `ST-JKT`).
+- `SHIP TO NAME` opsional; bila diisi akan memperbarui deskripsi tujuan pengiriman.
 - `ORDER VERSION` opsional (default 10 bila kosong).
 - Kolom `N` mewakili bulan order, `N+1` bulan berikutnya, dst.
 - Sistem mengonversi label relatif ke bulan kalender aktual.

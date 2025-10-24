@@ -55,6 +55,57 @@ const resolveForecastMonth = (header: string, orderMonth: Date): Date => {
   return parseMonthLabel(header)
 }
 
+const detectDelimiter = (line: string): string => {
+  const commaCount = (line.match(/,/g) ?? []).length
+  const semicolonCount = (line.match(/;/g) ?? []).length
+  if (semicolonCount > commaCount) {
+    return ';'
+  }
+  return ','
+}
+
+const splitCsvLine = (line: string, delimiter: string): string[] => {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+  let quoteChar: '"' | "'" | null = null
+
+  for (let i = 0; i < line.length; i++) {
+    const char = line[i]
+    const nextChar = line[i + 1]
+
+    if (char === '"' || char === "'") {
+      if (!inQuotes) {
+        inQuotes = true
+        quoteChar = char
+        continue
+      }
+
+      if (quoteChar === char) {
+        if (nextChar === quoteChar) {
+          current += char
+          i++
+        } else {
+          inQuotes = false
+          quoteChar = null
+        }
+        continue
+      }
+    }
+
+    if (char === delimiter && !inQuotes) {
+      result.push(current)
+      current = ''
+      continue
+    }
+
+    current += char
+  }
+
+  result.push(current)
+  return result
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -85,12 +136,31 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const headers = lines[0].split(',').map(h => h.trim())
-    const normalizedHeaders = headers.map(h => h.toUpperCase())
+    const sanitizeHeader = (cell: string) => {
+      let value = cell.replace(/\uFEFF/g, '').trim()
+      return value
+    }
 
-    const shipToIndex = normalizedHeaders.findIndex((h, idx) => idx >= 3 && h.replace(/\s+/g, ' ') === 'SHIP TO')
-    const orderDateIndex = normalizedHeaders.findIndex((h) => h.replace(/\s+/g, ' ') === 'ORDER DATE')
-    const orderVersionIndex = normalizedHeaders.findIndex((h) => h.replace(/\s+/g, ' ') === 'ORDER VERSION')
+    const sanitizeCell = (cell: string) => sanitizeHeader(cell)
+
+    const normalizeKey = (value: string) =>
+      sanitizeHeader(value)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, '')
+
+    const delimiter = detectDelimiter(lines[0])
+    const headers = splitCsvLine(lines[0], delimiter).map(sanitizeHeader)
+    const normalizedHeaders = headers.map(normalizeKey)
+
+    console.log('UPLOAD DEBUG -> raw header line:', lines[0])
+    console.log('UPLOAD DEBUG -> parsed headers:', headers)
+    console.log('UPLOAD DEBUG -> normalized headers:', normalizedHeaders)
+    console.log('UPLOAD DEBUG -> detected delimiter:', delimiter)
+
+    const shipToIndex = normalizedHeaders.findIndex((key, idx) => idx >= 3 && (key === 'SHIPTO' || key === 'SHIPTOCODE'))
+    const shipToNameIndex = normalizedHeaders.findIndex((key) => key === 'SHIPTONAME' || key === 'SHIPTODESC' || key === 'SHIPTODESCRIPTION')
+    const orderDateIndex = normalizedHeaders.findIndex((key) => key === 'ORDERDATE')
+    const orderVersionIndex = normalizedHeaders.findIndex((key) => key === 'ORDERVERSION')
 
     if (shipToIndex < 0) {
       return NextResponse.json(
@@ -125,7 +195,12 @@ export async function POST(request: NextRequest) {
 
     for (let i = 0; i < dataRows.length; i++) {
       try {
-        const values = dataRows[i].split(',').map(v => v.trim())
+        const values = splitCsvLine(dataRows[i], delimiter).map(sanitizeCell)
+
+        if (i === 0) {
+          console.log('UPLOAD DEBUG -> first data row raw:', dataRows[i])
+          console.log('UPLOAD DEBUG -> first data row parsed:', values)
+        }
         
         if (values.length < monthStartIndex + 1) {
           results.errors.push(`Row ${i + 2}: Insufficient columns`)
@@ -136,6 +211,7 @@ export async function POST(request: NextRequest) {
         const partName = values[1]
         const order = values[2]
         const shipToCodeRaw = shipToIndex >= 0 ? values[shipToIndex] : undefined
+        const shipToNameRaw = shipToNameIndex >= 0 ? values[shipToNameIndex] : undefined
         const orderDate = orderDateIndex >= 0 ? values[orderDateIndex] : values[3]
         const versionString = orderVersionIndex >= 0 ? values[orderVersionIndex] : undefined
         const monthHeaders = headers.slice(monthStartIndex)
@@ -177,6 +253,7 @@ export async function POST(request: NextRequest) {
         versionsUsed.add(resolvedVersion)
 
         const shipToCode = (shipToCodeRaw && shipToCodeRaw.length > 0) ? shipToCodeRaw : 'DEFAULT'
+        const shipToName = shipToNameRaw && shipToNameRaw.length > 0 ? shipToNameRaw : (shipToCode === 'DEFAULT' ? 'Default Ship To' : null)
 
         let shipTo = await db.shipTo.findFirst({
           where: {
@@ -190,10 +267,15 @@ export async function POST(request: NextRequest) {
             data: {
               skuId: sku.id,
               code: shipToCode,
-              name: shipToCode === 'DEFAULT' ? 'Default Ship To' : null
+              name: shipToName
             }
           })
           results.shipTosCreated++
+        } else if (shipToName && shipTo.name !== shipToName) {
+          shipTo = await db.shipTo.update({
+            where: { id: shipTo.id },
+            data: { name: shipToName }
+          })
         }
 
         for (let j = 0; j < monthHeaders.length && j < monthValues.length; j++) {
@@ -204,10 +286,11 @@ export async function POST(request: NextRequest) {
             continue
           }
 
-          const value = parseInt(valueStr)
-          if (isNaN(value)) {
-            continue
-          }
+        const normalizedNumeric = valueStr.replace(/\./g, '').replace(/\s/g, '')
+        const value = Number(normalizedNumeric)
+        if (Number.isNaN(value)) {
+          continue
+        }
 
           let forecastMonth: Date
           try {
