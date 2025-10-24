@@ -2,10 +2,20 @@ import { PrismaClient } from '@prisma/client'
 
 const prisma = new PrismaClient()
 
-const months = [
-  "Jul-24", "Agu-24", "Sep-24", "Okt-24", "Nov-24", "Des-24", 
-  "Jan-25", "Feb-25", "Mar-25", "Apr-25", "Mei-25", "Jun-25"
-]
+const monthMap: Record<string, number> = {
+  Jan: 0,
+  Feb: 1,
+  Mar: 2,
+  Apr: 3,
+  Mei: 4,
+  Jun: 5,
+  Jul: 6,
+  Agu: 7,
+  Sep: 8,
+  Okt: 9,
+  Nov: 10,
+  Des: 11,
+}
 
 const seedData = [
   {
@@ -94,54 +104,124 @@ const seedData = [
   }
 ]
 
-async function main() {
-  console.log('🌱 Starting database seeding with stair forecast pattern...')
+const parseMonthLabel = (label: string): Date => {
+  const [rawMonth, rawYear] = label.split('-')
+  const monthIndex = monthMap[rawMonth]
+  if (monthIndex === undefined) {
+    throw new Error(`Unknown month label: ${label}`)
+  }
+  const year = Number(rawYear)
+  const fullYear = year >= 70 ? 1900 + year : 2000 + year
+  return new Date(Date.UTC(fullYear, monthIndex, 1))
+}
 
-  // Clean existing data
-  await prisma.forecastData.deleteMany()
+const formatMonthLabel = (date: Date): string => {
+  const monthIdx = date.getUTCMonth()
+  const year = date.getUTCFullYear()
+  const monthLabel = Object.keys(monthMap).find((key) => monthMap[key] === monthIdx)
+  if (!monthLabel) {
+    throw new Error(`Cannot format month index: ${monthIdx}`)
+  }
+  return `${monthLabel}-${String(year).slice(-2)}`
+}
+
+async function main() {
+  console.log('🌱 Starting database seeding with stair forecast pattern and versioning...')
+
+  await prisma.forecastEntry.deleteMany()
+  await prisma.forecastVersion.deleteMany()
   await prisma.sKU.deleteMany()
   console.log('🗑️  Cleaned existing data')
 
-  // Seed SKUs and Forecast Data
+  const skuMap = new Map<string, string>()
+
   for (const skuData of seedData) {
     const { forecastData, ...skuInfo } = skuData
-    
-    // Create SKU
     const sku = await prisma.sKU.create({
       data: skuInfo
     })
-    
+    skuMap.set(skuData.partNumber, sku.id)
     console.log(`✅ Created SKU: ${sku.partNumber} - ${sku.partName}`)
-    
-    // Create Forecast Data for this SKU
-    for (const forecast of forecastData) {
-      await prisma.forecastData.create({
-        data: {
-          skuId: sku.id,
-          orderDate: forecast.orderDate,
-          month: forecast.month,
-          value: forecast.value
-        }
-      })
-    }
-    
-    console.log(`📊 Created ${forecastData.length} forecast records for ${sku.partNumber}`)
   }
 
-  // Get summary statistics
-  const totalSKUs = await prisma.sKU.count()
-  const totalForecastData = await prisma.forecastData.count()
-  const orderDates = await prisma.forecastData.groupBy({
-    by: ['orderDate'],
-    _count: true
+  const entriesByMonth = new Map<string, Array<{ skuId: string; orderMonth: Date; value: number }>>()
+
+  for (const skuData of seedData) {
+    const skuId = skuMap.get(skuData.partNumber)
+    if (!skuId) continue
+
+    for (const record of skuData.forecastData) {
+      const monthKey = record.month
+      const orderMonth = parseMonthLabel(record.orderDate)
+      const bucket = entriesByMonth.get(monthKey) ?? []
+      bucket.push({ skuId, orderMonth, value: record.value })
+      entriesByMonth.set(monthKey, bucket)
+    }
+  }
+
+  const months = Array.from(entriesByMonth.keys()).sort((a, b) => {
+    return parseMonthLabel(a).getTime() - parseMonthLabel(b).getTime()
   })
-  
+
+  for (const monthLabel of months) {
+    const entries = entriesByMonth.get(monthLabel)
+    if (!entries || entries.length === 0) continue
+
+    const baseVersion = await prisma.forecastVersion.create({
+      data: {
+        month: parseMonthLabel(monthLabel),
+        version: 10,
+        entries: {
+          create: entries.map((entry) => ({
+            skuId: entry.skuId,
+            orderMonth: entry.orderMonth,
+            value: entry.value,
+          }))
+        }
+      }
+    })
+
+    console.log(`📈 Created version v10 for ${monthLabel} with ${entries.length} records`)
+
+    if (parseMonthLabel(monthLabel).getUTCMonth() % 2 === 0) {
+      await prisma.forecastVersion.create({
+        data: {
+          month: parseMonthLabel(monthLabel),
+          version: 20,
+          entries: {
+            create: entries.map((entry) => ({
+              skuId: entry.skuId,
+              orderMonth: entry.orderMonth,
+              value: Math.max(0, Math.round(entry.value * 1.05)),
+            }))
+          }
+        }
+      })
+
+      console.log(`📈 Created version v20 for ${monthLabel}`)
+    }
+  }
+
+  const totalSKUs = await prisma.sKU.count()
+  const totalVersions = await prisma.forecastVersion.count()
+  const totalEntries = await prisma.forecastEntry.count()
+
+  const versionSummary = await prisma.forecastVersion.findMany({
+    include: {
+      _count: {
+        select: { entries: true }
+      }
+    },
+    orderBy: [{ month: 'asc' }, { version: 'asc' }]
+  })
+
   console.log('\n🎉 Database seeding completed successfully!')
   console.log(`📦 Total SKUs created: ${totalSKUs}`)
-  console.log(`📈 Total forecast records created: ${totalForecastData}`)
-  console.log('📊 Order dates:')
-  orderDates.forEach(order => {
-    console.log(`   - ${order.orderDate}: ${order._count} records`)
+  console.log(`🗂️  Total forecast versions created: ${totalVersions}`)
+  console.log(`📊 Total forecast entries created: ${totalEntries}`)
+  console.log('🧾 Version summary:')
+  versionSummary.forEach((version) => {
+    console.log(`   - ${formatMonthLabel(version.month)} v${version.version}: ${version._count.entries} entries`)
   })
   console.log('\n🚀 You can now start the application with: npm run dev')
 }

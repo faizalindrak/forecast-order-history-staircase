@@ -38,20 +38,35 @@ model SKU {
   order      String
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
-  
-  forecastData ForecastData[]
+
+  forecastEntries ForecastEntry[]
 }
 
-model ForecastData {
-  id         String   @id @default(cuid())
-  skuId      String
-  orderDate  String   // Order date (format: MMM-YY)
-  month      String   // Forecast month (format: MMM-YY)
-  value      Int
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-  
-  sku        SKU      @relation(fields: [skuId], references: [id], onDelete: Cascade)
-  
-  @@unique([skuId, orderDate, month])
+model ForecastVersion {
+  id        String   @id @default(cuid())
+  month     DateTime
+  version   Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  entries   ForecastEntry[]
+
+  @@unique([month, version])
+  @@index([month, version])
+}
+
+model ForecastEntry {
+  id                String   @id @default(cuid())
+  forecastVersionId String
+  skuId             String
+  orderMonth        DateTime
+  value             Int
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  forecastVersion ForecastVersion @relation(fields: [forecastVersionId], references: [id], onDelete: Cascade)
+  sku             SKU             @relation(fields: [skuId], references: [id], onDelete: Cascade)
+
+  @@unique([forecastVersionId, skuId, orderMonth])
+  @@index([skuId, orderMonth])
 }

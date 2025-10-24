@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -11,17 +11,45 @@ import { Upload, Download, RefreshCw, Sun, Moon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import * as XLSX from 'xlsx-js-style'
 
+const MONTH_NAMES = [
+  'Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun',
+  'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'
+]
+
+const formatMonthLabel = (date: Date): string => {
+  const month = MONTH_NAMES[date.getUTCMonth()]
+  const year = String(date.getUTCFullYear()).slice(-2)
+  return `${month}-${year}`
+}
+
+const formatMonthFromIso = (iso: string): string => {
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) {
+    return iso
+  }
+  return formatMonthLabel(date)
+}
+
 interface ForecastData {
   id: string
   skuId: string
   orderDate: string
   month: string
   value: number
+  version: number
   sku?: {
     partNumber: string
     partName: string
     order: string
   }
+}
+
+interface ForecastApiResponse {
+  entries: ForecastData[]
+  availableVersions: number[]
+  requestedVersion: number | 'latest'
+  versionSelection: Record<string, number | null>
+  fallbackMonths: string[]
 }
 
 interface SKU {
@@ -42,6 +70,9 @@ export default function Home() {
   const [selectedSKU, setSelectedSKU] = useState<string>('')
   const [skuList, setSkuList] = useState<SKU[]>([])
   const [forecastData, setForecastData] = useState<ForecastData[]>([])
+  const [availableVersions, setAvailableVersions] = useState<number[]>([])
+  const [selectedVersion, setSelectedVersion] = useState<string>('latest')
+  const [fallbackMonths, setFallbackMonths] = useState<string[]>([])
   const [deltaMode, setDeltaMode] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
@@ -160,6 +191,44 @@ const isLight = effectiveTheme === 'light'
     return orderDates.sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b))
   }
 
+  const fetchForecastData = useCallback(async (skuId: string, versionValue?: string) => {
+    if (!skuId) return
+
+    try {
+      const params = new URLSearchParams({ skuId })
+      const desiredVersion = versionValue ?? selectedVersion
+      const versionQuery = desiredVersion && desiredVersion !== 'latest' ? desiredVersion : 'latest'
+      params.set('version', versionQuery)
+
+      const response = await fetch(`/api/forecast?${params.toString()}`)
+      if (!response.ok) {
+        console.error('Failed to load forecast data')
+        return
+      }
+
+      const data: ForecastApiResponse = await response.json()
+      setForecastData(data.entries ?? [])
+      setAvailableVersions(data.availableVersions ?? [])
+
+      const resolvedVersion = data.requestedVersion === 'latest'
+        ? 'latest'
+        : data.requestedVersion.toString()
+
+      setSelectedVersion((prev) => (prev === resolvedVersion ? prev : resolvedVersion))
+
+      const fallbackLabels = Array.from(new Set(
+        (data.fallbackMonths ?? []).map((iso) => {
+          const label = formatMonthFromIso(iso)
+          const version = data.versionSelection?.[iso] ?? null
+          return version ? `${label} (v${version})` : label
+        })
+      ))
+      setFallbackMonths(fallbackLabels)
+    } catch (error) {
+      console.error('Error loading forecast data:', error)
+    }
+  }, [selectedVersion])
+
   // Load data from API
   useEffect(() => {
     const loadData = async () => {
@@ -171,7 +240,6 @@ const isLight = effectiveTheme === 'light'
           
           if (data.length > 0) {
             setSelectedSKU(data[0].id)
-            setForecastData(data[0].forecastData || [])
           }
         }
       } catch (error) {
@@ -182,24 +250,11 @@ const isLight = effectiveTheme === 'light'
     loadData()
   }, [])
 
-  // Load forecast data when SKU changes
+  // Load forecast data when SKU or version changes
   useEffect(() => {
     if (!selectedSKU) return
-
-    const loadForecastData = async () => {
-      try {
-        const response = await fetch(`/api/forecast?skuId=${selectedSKU}`)
-        if (response.ok) {
-          const data = await response.json()
-          setForecastData(data)
-        }
-      } catch (error) {
-        console.error('Error loading forecast data:', error)
-      }
-    }
-
-    loadForecastData()
-  }, [selectedSKU])
+    fetchForecastData(selectedSKU, selectedVersion)
+  }, [selectedSKU, selectedVersion, fetchForecastData])
 
   // Group forecast data by order date and create stair pattern
   const getStairData = (): StairDataItem[] => {
@@ -275,6 +330,10 @@ const isLight = effectiveTheme === 'light'
         if (skusResponse.ok) {
           const data = await skusResponse.json()
           setSkuList(data)
+
+          if (selectedSKU) {
+            await fetchForecastData(selectedSKU, selectedVersion)
+          }
         }
         
         // Reset file input
@@ -315,12 +374,10 @@ const isLight = effectiveTheme === 'light'
         
         if (data.length > 0) {
           const currentSKU = selectedSKU || data[0].id
-          setSelectedSKU(currentSKU)
-          
-          const forecastResponse = await fetch(`/api/forecast?skuId=${currentSKU}`)
-          if (forecastResponse.ok) {
-            const forecastData = await forecastResponse.json()
-            setForecastData(forecastData)
+          if (selectedSKU !== currentSKU) {
+            setSelectedSKU(currentSKU)
+          } else {
+            await fetchForecastData(currentSKU, selectedVersion)
           }
         }
       }
@@ -519,6 +576,7 @@ const isLight = effectiveTheme === 'light'
 
   const selectedSKUData = skuList.find(sku => sku.id === selectedSKU)
   const stairData = getStairData()
+  const currentVersionDisplay = selectedVersion === 'latest' ? 'Terbaru' : `v${selectedVersion}`
 
   return (
     <div className={`min-h-screen ${getThemeClasses()} p-6`}>
@@ -592,6 +650,35 @@ const isLight = effectiveTheme === 'light'
                   <p><strong>Order:</strong> {selectedSKUData.order}</p>
                 </div>
               )}
+              <div className="mt-4 space-y-2">
+                <Label className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
+                  Pilih Versi Forecast
+                </Label>
+                <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+                  <SelectTrigger className={effectiveTheme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}>
+                    <SelectValue placeholder="Pilih Versi" />
+                  </SelectTrigger>
+                  <SelectContent className={effectiveTheme === 'light' ? 'bg-white border-gray-300' : 'bg-neutral-800 border-neutral-700'}>
+                    <SelectItem value="latest" className={effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}>
+                      Versi Terbaru
+                    </SelectItem>
+                    {availableVersions.map((version) => (
+                      <SelectItem
+                        key={version}
+                        value={version.toString()}
+                        className={effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}
+                      >
+                        Versi {version}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {fallbackMonths.length > 0 && (
+                  <p className={`text-xs ${getSubTextColorClasses()}`}>
+                    Beberapa bulan tidak memiliki versi yang dipilih, sehingga menggunakan versi terbaru: {fallbackMonths.join(', ')}
+                  </p>
+                )}
+              </div>
             </CardContent>
           </Card>
 
@@ -644,7 +731,7 @@ const isLight = effectiveTheme === 'light'
         <Card className={getCardClasses()}>
           <CardHeader>
             <CardTitle className={`text-xl ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
-              Stair Forecast Data
+              Stair Forecast Data (Versi {currentVersionDisplay})
             </CardTitle>
           </CardHeader>
           <CardContent>

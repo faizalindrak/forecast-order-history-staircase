@@ -4,14 +4,6 @@ import { db } from '@/lib/db'
 export async function GET() {
   try {
     const skus = await db.sKU.findMany({
-      include: {
-        forecastData: {
-          orderBy: [
-            { orderDate: 'asc' },
-            { month: 'asc' }
-          ]
-        }
-      },
       orderBy: {
         partNumber: 'asc'
       }
