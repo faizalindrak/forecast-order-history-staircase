@@ -88,13 +88,35 @@ export async function POST(request: NextRequest) {
     const headers = lines[0].split(',').map(h => h.trim())
     const normalizedHeaders = headers.map(h => h.toUpperCase())
 
-    const orderVersionIndex = normalizedHeaders.findIndex((h, idx) => idx >= 4 && h.replace(/\s+/g, ' ') === 'ORDER VERSION')
-    const monthStartIndex = orderVersionIndex >= 0 ? orderVersionIndex + 1 : 4
+    const shipToIndex = normalizedHeaders.findIndex((h, idx) => idx >= 3 && h.replace(/\s+/g, ' ') === 'SHIP TO')
+    const orderDateIndex = normalizedHeaders.findIndex((h) => h.replace(/\s+/g, ' ') === 'ORDER DATE')
+    const orderVersionIndex = normalizedHeaders.findIndex((h) => h.replace(/\s+/g, ' ') === 'ORDER VERSION')
+
+    if (shipToIndex < 0) {
+      return NextResponse.json(
+        { error: 'Kolom "SHIP TO" wajib ada pada file upload' },
+        { status: 400 }
+      )
+    }
+
+    if (orderDateIndex < 0) {
+      return NextResponse.json(
+        { error: 'Kolom "ORDER DATE" tidak ditemukan' },
+        { status: 400 }
+      )
+    }
+
+    const monthStartIndex = orderVersionIndex >= 0
+      ? orderVersionIndex + 1
+      : orderDateIndex >= 0
+        ? orderDateIndex + 1
+        : Math.max(shipToIndex, 3) + 1
     const dataRows = lines.slice(1)
 
     const results = {
       skusCreated: 0,
       forecastEntriesCreated: 0,
+      shipTosCreated: 0,
       errors: [] as string[]
     }
 
@@ -113,7 +135,8 @@ export async function POST(request: NextRequest) {
         const partNumber = values[0]
         const partName = values[1]
         const order = values[2]
-        const orderDate = values[3]
+        const shipToCodeRaw = shipToIndex >= 0 ? values[shipToIndex] : undefined
+        const orderDate = orderDateIndex >= 0 ? values[orderDateIndex] : values[3]
         const versionString = orderVersionIndex >= 0 ? values[orderVersionIndex] : undefined
         const monthHeaders = headers.slice(monthStartIndex)
         const monthValues = values.slice(monthStartIndex)
@@ -153,6 +176,26 @@ export async function POST(request: NextRequest) {
         processedSKUs.add(sku.id)
         versionsUsed.add(resolvedVersion)
 
+        const shipToCode = (shipToCodeRaw && shipToCodeRaw.length > 0) ? shipToCodeRaw : 'DEFAULT'
+
+        let shipTo = await db.shipTo.findFirst({
+          where: {
+            skuId: sku.id,
+            code: shipToCode
+          }
+        })
+
+        if (!shipTo) {
+          shipTo = await db.shipTo.create({
+            data: {
+              skuId: sku.id,
+              code: shipToCode,
+              name: shipToCode === 'DEFAULT' ? 'Default Ship To' : null
+            }
+          })
+          results.shipTosCreated++
+        }
+
         for (let j = 0; j < monthHeaders.length && j < monthValues.length; j++) {
           const monthLabel = monthHeaders[j].trim()
           const valueStr = monthValues[j].trim()
@@ -190,9 +233,10 @@ export async function POST(request: NextRequest) {
 
           const existingEntry = await db.forecastEntry.findUnique({
             where: {
-              forecastVersionId_skuId_orderMonth: {
+              forecastVersionId_skuId_shipToId_orderMonth: {
                 forecastVersionId: versionRecord.id,
                 skuId: sku.id,
+                shipToId: shipTo.id,
                 orderMonth
               }
             }
@@ -203,6 +247,7 @@ export async function POST(request: NextRequest) {
               data: {
                 forecastVersionId: versionRecord.id,
                 skuId: sku.id,
+                shipToId: shipTo.id,
                 orderMonth,
                 value
               }

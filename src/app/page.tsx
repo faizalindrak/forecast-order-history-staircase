@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
@@ -30,9 +30,30 @@ const formatMonthFromIso = (iso: string): string => {
   return formatMonthLabel(date)
 }
 
+const monthLabelToTimestamp = (label: string): number => {
+  const [rawMonth, rawYear] = label.split('-')
+  const monthIndex = MONTH_NAMES.findIndex((name) => name === rawMonth)
+  if (monthIndex === -1 || !rawYear) {
+    const parsed = new Date(label)
+    return Number.isNaN(parsed.getTime()) ? Number.NEGATIVE_INFINITY : parsed.getTime()
+  }
+  const yearNumber = Number(rawYear)
+  const fullYear = Number.isNaN(yearNumber)
+    ? new Date().getUTCFullYear()
+    : (yearNumber >= 70 ? 1900 + yearNumber : 2000 + yearNumber)
+  return Date.UTC(fullYear, monthIndex, 1)
+}
+
+interface ShipTo {
+  id: string
+  code: string
+  name?: string | null
+}
+
 interface ForecastData {
   id: string
   skuId: string
+  shipToId: string | null
   orderDate: string
   month: string
   value: number
@@ -42,6 +63,7 @@ interface ForecastData {
     partName: string
     order: string
   }
+  shipTo?: ShipTo
 }
 
 interface ForecastApiResponse {
@@ -57,10 +79,13 @@ interface SKU {
   partNumber: string
   partName: string
   order: string
+  shipTos?: ShipTo[]
 }
 
 interface StairDataItem {
   orderDate: string
+  shipToCode?: string
+  shipToName?: string | null
   values: (number | null)[]
   firstMonth?: string
   lastMonth?: string
@@ -68,6 +93,7 @@ interface StairDataItem {
 
 export default function Home() {
   const [selectedSKU, setSelectedSKU] = useState<string>('')
+  const [selectedShipTo, setSelectedShipTo] = useState<string>('all')
   const [skuList, setSkuList] = useState<SKU[]>([])
   const [forecastData, setForecastData] = useState<ForecastData[]>([])
   const [availableVersions, setAvailableVersions] = useState<number[]>([])
@@ -156,77 +182,65 @@ const isLight = effectiveTheme === 'light'
 
   // Helper function untuk compare bulan
   const compareMonths = (month1: string, month2: string): number => {
-    const monthOrder = [
-      "Jan-24", "Feb-24", "Mar-24", "Apr-24", "Mei-24", "Jun-24",
-      "Jul-24", "Agu-24", "Sep-24", "Okt-24", "Nov-24", "Des-24",
-      "Jan-25", "Feb-25", "Mar-25", "Apr-25", "Mei-25", "Jun-25",
-      "Jul-25", "Agu-25", "Sep-25", "Okt-25", "Nov-25", "Des-25",
-      "Jan-26", "Feb-26", "Mar-26", "Apr-26", "Mei-26", "Jun-26"
-    ]
-    return monthOrder.indexOf(month1) - monthOrder.indexOf(month2)
+    return monthLabelToTimestamp(month1) - monthLabelToTimestamp(month2)
   }
 
   // Generate dynamic months from forecast data
-  const getDynamicMonths = () => {
-    if (forecastData.length === 0) return []
-    
-    const allMonths = forecastData.map(d => d.month)
-    const uniqueMonths = Array.from(new Set(allMonths))
-    
+  const months = useMemo(() => {
+    if (forecastData.length === 0) return [] as string[]
+    const uniqueMonths = Array.from(new Set(forecastData.map((d) => d.month)))
     return uniqueMonths.sort((a, b) => compareMonths(a, b))
-  }
-
-  const months = getDynamicMonths()
+  }, [forecastData])
 
   // Helper function untuk sorting order dates secara kronologis
   const sortOrderDates = (orderDates: string[]) => {
-    const monthOrder = [
-      "Jan-24", "Feb-24", "Mar-24", "Apr-24", "Mei-24", "Jun-24",
-      "Jul-24", "Agu-24", "Sep-24", "Okt-24", "Nov-24", "Des-24",
-      "Jan-25", "Feb-25", "Mar-25", "Apr-25", "Mei-25", "Jun-25",
-      "Jul-25", "Agu-25", "Sep-25", "Okt-25", "Nov-25", "Des-25",
-      "Jan-26", "Feb-26", "Mar-26", "Apr-26", "Mei-26", "Jun-26"
-    ]
-    return orderDates.sort((a, b) => monthOrder.indexOf(a) - monthOrder.indexOf(b))
+    return orderDates.sort((a, b) => compareMonths(a, b))
   }
 
-  const fetchForecastData = useCallback(async (skuId: string, versionValue?: string) => {
-    if (!skuId) return
+  const fetchForecastData = useCallback(
+    async (skuId: string, options?: { version?: string; shipToId?: string | 'all' }) => {
+      if (!skuId) return
 
-    try {
-      const params = new URLSearchParams({ skuId })
-      const desiredVersion = versionValue ?? selectedVersion
-      const versionQuery = desiredVersion && desiredVersion !== 'latest' ? desiredVersion : 'latest'
-      params.set('version', versionQuery)
+      try {
+        const params = new URLSearchParams({ skuId })
+        const desiredVersion = options?.version ?? selectedVersion
+        const desiredShipTo = options?.shipToId ?? selectedShipTo
+        const versionQuery = desiredVersion && desiredVersion !== 'latest' ? desiredVersion : 'latest'
+        params.set('version', versionQuery)
+        if (desiredShipTo && desiredShipTo !== 'all') {
+          params.set('shipToId', desiredShipTo)
+        }
 
-      const response = await fetch(`/api/forecast?${params.toString()}`)
-      if (!response.ok) {
-        console.error('Failed to load forecast data')
-        return
+        const response = await fetch(`/api/forecast?${params.toString()}`)
+        if (!response.ok) {
+          console.error('Failed to load forecast data')
+          return
+        }
+
+        const data: ForecastApiResponse = await response.json()
+        setForecastData(data.entries ?? [])
+        setAvailableVersions(data.availableVersions ?? [])
+
+        const resolvedVersion = data.requestedVersion === 'latest'
+          ? 'latest'
+          : data.requestedVersion.toString()
+
+        setSelectedVersion((prev) => (prev === resolvedVersion ? prev : resolvedVersion))
+
+        const fallbackLabels = Array.from(new Set(
+          (data.fallbackMonths ?? []).map((iso) => {
+            const label = formatMonthFromIso(iso)
+            const version = data.versionSelection?.[iso] ?? null
+            return version ? `${label} (v${version})` : label
+          })
+        ))
+        setFallbackMonths(fallbackLabels)
+      } catch (error) {
+        console.error('Error loading forecast data:', error)
       }
-
-      const data: ForecastApiResponse = await response.json()
-      setForecastData(data.entries ?? [])
-      setAvailableVersions(data.availableVersions ?? [])
-
-      const resolvedVersion = data.requestedVersion === 'latest'
-        ? 'latest'
-        : data.requestedVersion.toString()
-
-      setSelectedVersion((prev) => (prev === resolvedVersion ? prev : resolvedVersion))
-
-      const fallbackLabels = Array.from(new Set(
-        (data.fallbackMonths ?? []).map((iso) => {
-          const label = formatMonthFromIso(iso)
-          const version = data.versionSelection?.[iso] ?? null
-          return version ? `${label} (v${version})` : label
-        })
-      ))
-      setFallbackMonths(fallbackLabels)
-    } catch (error) {
-      console.error('Error loading forecast data:', error)
-    }
-  }, [selectedVersion])
+    },
+    [selectedVersion, selectedShipTo]
+  )
 
   // Load data from API
   useEffect(() => {
@@ -239,6 +253,7 @@ const isLight = effectiveTheme === 'light'
           
           if (data.length > 0) {
             setSelectedSKU(data[0].id)
+            setSelectedShipTo(data[0].shipTos?.[0]?.id ?? 'all')
           }
         }
       } catch (error) {
@@ -249,48 +264,125 @@ const isLight = effectiveTheme === 'light'
     loadData()
   }, [])
 
-  // Load forecast data when SKU or version changes
   useEffect(() => {
     if (!selectedSKU) return
-    fetchForecastData(selectedSKU, selectedVersion)
-  }, [selectedSKU, selectedVersion, fetchForecastData])
+    const activeSku = skuList.find((sku) => sku.id === selectedSKU)
+    if (!activeSku) return
 
-  // Group forecast data by order date and create stair pattern
+    if (activeSku.shipTos && activeSku.shipTos.length > 0) {
+      if (selectedShipTo !== 'all') {
+        const matches = activeSku.shipTos.some((shipTo) => shipTo.id === selectedShipTo)
+        if (!matches) {
+          setSelectedShipTo(activeSku.shipTos[0].id)
+        }
+      }
+    } else if (selectedShipTo !== 'all') {
+      setSelectedShipTo('all')
+    }
+  }, [selectedSKU, skuList, selectedShipTo])
+
+  // Load forecast data when SKU, version, atau ship-to berubah
+  useEffect(() => {
+    if (!selectedSKU) return
+    fetchForecastData(selectedSKU, { version: selectedVersion, shipToId: selectedShipTo })
+  }, [selectedSKU, selectedVersion, selectedShipTo, fetchForecastData])
+
+  // Group forecast data by order date & ship-to untuk membentuk pola tangga
   const getStairData = (): StairDataItem[] => {
-    const orderDates = sortOrderDates(Array.from(new Set(forecastData.map(d => d.orderDate))))
-    console.log('Order dates after sorting:', orderDates) // Debug log
+    if (forecastData.length === 0) return []
 
-    const stairData: StairDataItem[] = []
+    const isAggregated = selectedShipTo === 'all'
 
-    orderDates.forEach(orderDate => {
-      const orderData = forecastData.filter(d => d.orderDate === orderDate)
-      
-      // Find the first and last month that have data for this order
-      const orderMonths = orderData.map(d => d.month).sort((a, b) => compareMonths(a, b))
-      
+    if (isAggregated) {
+      const orderMap = new Map<string, Map<string, number>>()
+
+      forecastData.forEach((entry) => {
+        const monthMap = orderMap.get(entry.orderDate) ?? new Map<string, number>()
+        const current = monthMap.get(entry.month) ?? 0
+        monthMap.set(entry.month, current + entry.value)
+        orderMap.set(entry.orderDate, monthMap)
+      })
+
+      const sortedOrderDates = Array.from(orderMap.keys()).sort(compareMonths)
+
+      return sortedOrderDates.map((orderDate) => {
+        const monthMap = orderMap.get(orderDate) ?? new Map<string, number>()
+        const monthKeys = Array.from(monthMap.keys()).sort(compareMonths)
+        const firstMonth = monthKeys[0]
+        const lastMonth = monthKeys[monthKeys.length - 1]
+
+        const values = months.map((month) => {
+          if (!firstMonth || !lastMonth) return null
+          if (compareMonths(month, firstMonth) < 0 || compareMonths(month, lastMonth) > 0) {
+            return null
+          }
+          const sum = monthMap.get(month)
+          return sum !== undefined ? sum : null
+        })
+
+        return {
+          orderDate,
+          shipToCode: 'Semua Ship To',
+          shipToName: null,
+          values,
+          firstMonth,
+          lastMonth,
+        }
+      })
+    }
+
+    const groupIndex = new Map<string, number>()
+    const groups: Array<{ orderDate: string; shipToCode?: string; shipToName?: string | null; entries: ForecastData[] }> = []
+
+    forecastData.forEach((entry) => {
+      const groupKey = `${entry.shipToId ?? 'null'}::${entry.orderDate}`
+      if (!groupIndex.has(groupKey)) {
+        groupIndex.set(groupKey, groups.length)
+        groups.push({
+          orderDate: entry.orderDate,
+          shipToCode: entry.shipTo?.code ?? undefined,
+          shipToName: entry.shipTo?.name ?? null,
+          entries: []
+        })
+      }
+      const index = groupIndex.get(groupKey)
+      if (index !== undefined) {
+        groups[index].entries.push(entry)
+      }
+    })
+
+    const sortedGroups = groups.sort((a, b) => {
+      const codeA = (a.shipToCode ?? '').toLowerCase()
+      const codeB = (b.shipToCode ?? '').toLowerCase()
+      if (codeA !== codeB) {
+        return codeA.localeCompare(codeB)
+      }
+      return compareMonths(a.orderDate, b.orderDate)
+    })
+
+    return sortedGroups.map((group) => {
+      const orderMonths = group.entries.map((d) => d.month).sort((a, b) => compareMonths(a, b))
       const firstMonth = orderMonths[0]
       const lastMonth = orderMonths[orderMonths.length - 1]
-      
-      // Create values array - only show data from firstMonth to lastMonth for this order
-      const values = months.map(month => {
-        // Only show data if month is within this order's range
+
+      const values = months.map((month) => {
+        if (!firstMonth || !lastMonth) return null
         if (compareMonths(month, firstMonth) < 0 || compareMonths(month, lastMonth) > 0) {
           return null
         }
-        
-        const data = orderData.find(d => d.month === month)
-        return data ? data.value : null
+        const record = group.entries.find((d) => d.month === month)
+        return record ? record.value : null
       })
-      
-      stairData.push({
-        orderDate,
+
+      return {
+        orderDate: group.orderDate,
+        shipToCode: group.shipToCode,
+        shipToName: group.shipToName,
         values,
         firstMonth,
-        lastMonth
-      })
+        lastMonth,
+      }
     })
-
-    return stairData
   }
 
   const calcDelta = (val: number | null, prevVal: number | null) => {
@@ -311,7 +403,7 @@ const isLight = effectiveTheme === 'light'
           if (selectedSKU !== currentSKU) {
             setSelectedSKU(currentSKU)
           } else {
-            await fetchForecastData(currentSKU, selectedVersion)
+            await fetchForecastData(currentSKU, { version: selectedVersion, shipToId: selectedShipTo })
           }
         }
       }
@@ -323,68 +415,64 @@ const isLight = effectiveTheme === 'light'
   }
 
   const handleExport = () => {
-    // Get current months for headers
-    const currentMonths = getDynamicMonths()
-    
-    // Prepare data for all SKUs (Forecast)
+    const currentMonths = months
+    const activeSku = skuList.find((sku) => sku.id === selectedSKU)
+    if (!activeSku) {
+      console.warn('No active SKU selected for export')
+      return
+    }
+
+    const stairRows = getStairData()
+
+    // Prepare Forecast data
     const allData: any[] = []
-    const headers = ['PART NUMBER', 'PART NAME', 'ORDER', 'ORDER DATE', ...currentMonths]
+    const headers = ['PART NUMBER', 'PART NAME', 'ORDER', 'SHIP TO', 'ORDER DATE', ...currentMonths]
     allData.push(headers)
-    
-    skuList.forEach(sku => {
-      const skuForecastData = forecastData.filter(d => d.skuId === sku.id)
-      const orderDates = sortOrderDates(Array.from(new Set(skuForecastData.map(d => d.orderDate))))
-      
-      orderDates.forEach(orderDate => {
-        const orderData = skuForecastData.filter(d => d.orderDate === orderDate)
-        const values: (string | number)[] = [sku.partNumber, sku.partName, sku.order, orderDate]
-        
-        currentMonths.forEach(month => {
-          const monthData = orderData.find(d => d.month === month)
-          values.push(monthData ? Number(monthData.value) : '')
-        })
-        
-        allData.push(values)
+
+    stairRows.forEach((row) => {
+      const values: (string | number)[] = [
+        activeSku.partNumber,
+        activeSku.partName,
+        activeSku.order,
+        row.shipToCode ?? '',
+        row.orderDate,
+      ]
+
+      currentMonths.forEach((_, idx) => {
+        const cellValue = row.values[idx]
+        values.push(cellValue != null ? Number(cellValue) : '')
       })
+
+      allData.push(values)
     })
-    
-    // Prepare Delta Data (to be placed below Forecast)
+
+    // Prepare Delta data (per ship-to)
     const deltaData: any[] = []
-    const deltaHeaders = ['PART NUMBER', 'PART NAME', 'ORDER', 'ORDER DATE', ...currentMonths.map(m => `${m} (Δ)`)]
+    const deltaHeaders = ['PART NUMBER', 'PART NAME', 'ORDER', 'SHIP TO', 'ORDER DATE', ...currentMonths.map((m) => `${m} (Δ)`)]
     deltaData.push(deltaHeaders)
-    
-    skuList.forEach(sku => {
-      const skuForecastData = forecastData.filter(d => d.skuId === sku.id)
-      const orderDates = sortOrderDates(Array.from(new Set(skuForecastData.map(d => d.orderDate))))
-      
-      const stairData: Array<{ orderDate: string; values: (number | null)[] }> = []
-      orderDates.forEach(orderDate => {
-        const orderData = skuForecastData.filter(d => d.orderDate === orderDate)
-        const values = currentMonths.map(month => {
-          const data = orderData.find(d => d.month === month)
-          return data ? Number(data.value) : null
-        })
-        stairData.push({ orderDate, values })
+
+    stairRows.forEach((row, index) => {
+      const prevRow = index > 0 && stairRows[index - 1].shipToCode === row.shipToCode ? stairRows[index - 1] : null
+      const deltaValues: (string | number | '')[] = [
+        activeSku.partNumber,
+        activeSku.partName,
+        activeSku.order,
+        row.shipToCode ?? '',
+        row.orderDate,
+      ]
+
+      currentMonths.forEach((_, idx) => {
+        if (!prevRow) {
+          deltaValues.push('')
+        } else {
+          const delta = calcDelta(row.values[idx], prevRow.values[idx])
+          deltaValues.push(delta != null ? Number(delta) : '')
+        }
       })
-      
-      stairData.forEach((row, i) => {
-        const deltaValues: (string | number | '')[] = [sku.partNumber, sku.partName, sku.order, row.orderDate]
-        
-        currentMonths.forEach((_, j) => {
-          if (i === 0) {
-            deltaValues.push('') // empty for first row
-          } else {
-            const currentVal = row.values[j]
-            const prevVal = stairData[i - 1].values[j]
-            const delta = calcDelta(currentVal, prevVal)
-            deltaValues.push(delta !== null ? Number(delta) : '')
-          }
-        })
-        
-        deltaData.push(deltaValues)
-      })
+
+      deltaData.push(deltaValues)
     })
-    
+
     // Combine into single sheet
     const combinedData: any[] = [
       ...allData,
@@ -398,14 +486,15 @@ const isLight = effectiveTheme === 'light'
     const colWidths = [
       { wch: 15 }, // PART NUMBER
       { wch: 30 }, // PART NAME
-      { wch: 10 }, // ORDER
+      { wch: 12 }, // ORDER
+      { wch: 12 }, // SHIP TO
       { wch: 12 }, // ORDER DATE
       ...currentMonths.map(() => ({ wch: 12 })) // Month columns
     ]
     ws['!cols'] = colWidths
     
     // Styling with xlsx-js-style
-    const totalCols = 4 + currentMonths.length
+    const totalCols = 5 + currentMonths.length
     const forecastRows = allData.length
     const deltaHeaderRow = forecastRows + 2            // 1-based row index for Delta header in Excel
     const deltaDataStartRow = forecastRows + 3         // 1-based start of Delta data
@@ -437,7 +526,7 @@ const isLight = effectiveTheme === 'light'
       for (let c = 0; c < totalCols; c++) {
         const addr = ensureCell(r, c)
         const cell: any = ws[addr]
-        const isNumberColumn = c >= 4
+        const isNumberColumn = c >= 5
         // number format
         if (typeof cell.v === 'number') {
           cell.t = 'n'
@@ -458,7 +547,7 @@ const isLight = effectiveTheme === 'light'
     for (let c = 0; c < totalCols; c++) {
       const addr = ensureCell(deltaHeaderRow - 1, c) // convert to 0-based
       const cell: any = ws[addr]
-      const isNumberColumn = c >= 4
+      const isNumberColumn = c >= 5
       cell.s = {
         ...(cell.s || {}),
         border: thinBorder,
@@ -473,7 +562,7 @@ const isLight = effectiveTheme === 'light'
       for (let c = 0; c < totalCols; c++) {
         const addr = ensureCell(r0, c)
         const cell: any = ws[addr]
-        const isNumberColumn = c >= 4
+        const isNumberColumn = c >= 5
         // Border + alignment
         cell.s = {
           ...(cell.s || {}),
@@ -509,6 +598,8 @@ const isLight = effectiveTheme === 'light'
   }
 
   const selectedSKUData = skuList.find(sku => sku.id === selectedSKU)
+  const shipToOptions = selectedSKUData?.shipTos ?? []
+  const shipToSelectValue = shipToOptions.length > 0 ? selectedShipTo : 'all'
   const stairData = getStairData()
   const currentVersionDisplay = selectedVersion === 'latest' ? 'Terbaru' : `v${selectedVersion}`
 
@@ -589,38 +680,98 @@ const isLight = effectiveTheme === 'light'
                     }))}
                     placeholder="Cari atau pilih SKU"
                   />
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="flex-1 space-y-2">
+                      <Label className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
+                        Pilih Ship To
+                      </Label>
+                      <Select
+                        value={shipToSelectValue}
+                        onValueChange={setSelectedShipTo}
+                        disabled={shipToOptions.length === 0}
+                      >
+                        <SelectTrigger
+                          className={cn(
+                            'h-11 rounded-2xl border border-transparent px-4 text-base font-medium shadow-sm transition',
+                            effectiveTheme === 'light'
+                              ? 'bg-white text-gray-900 focus:border-primary/40 focus:ring-2 focus:ring-primary/40'
+                              : 'bg-neutral-850 text-neutral-100 focus:border-primary/60 focus:ring-2 focus:ring-primary/60'
+                          )}
+                        >
+                          <SelectValue placeholder="Semua Ship To" />
+                        </SelectTrigger>
+                        <SelectContent className={effectiveTheme === 'light' ? 'bg-white border border-gray-200 text-gray-900' : 'bg-neutral-900 border border-neutral-700 text-neutral-100'}>
+                          <SelectItem
+                            value="all"
+                            className={cn(
+                              'rounded-lg px-3 py-2 text-sm',
+                              effectiveTheme === 'light' ? 'text-gray-900 data-[highlighted]:bg-gray-100' : 'text-neutral-100 data-[highlighted]:bg-neutral-800'
+                            )}
+                          >
+                            Semua Ship To
+                          </SelectItem>
+                          {shipToOptions.map((shipTo) => (
+                            <SelectItem
+                              key={shipTo.id}
+                              value={shipTo.id}
+                              className={cn(
+                                'rounded-lg px-3 py-2 text-sm',
+                                effectiveTheme === 'light' ? 'text-gray-900 data-[highlighted]:bg-gray-100' : 'text-neutral-100 data-[highlighted]:bg-neutral-800'
+                              )}
+                            >
+                              {shipTo.code}
+                              {shipTo.name ? ` - ${shipTo.name}` : ''}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
 
+                    <div className="flex-1 space-y-2">
+                      <Label className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
+                        Pilih Versi Forecast
+                      </Label>
+                      <Select value={selectedVersion} onValueChange={setSelectedVersion}>
+                        <SelectTrigger className={cn(
+                          'h-11 rounded-2xl border border-transparent px-4 text-base font-medium shadow-sm transition',
+                          effectiveTheme === 'light'
+                            ? 'bg-white text-gray-900 focus:border-primary/40 focus:ring-2 focus:ring-primary/40'
+                            : 'bg-neutral-850 text-neutral-100 focus:border-primary/60 focus:ring-2 focus:ring-primary/60'
+                        )}>
+                          <SelectValue placeholder="Pilih Versi" />
+                        </SelectTrigger>
+                        <SelectContent className={effectiveTheme === 'light' ? 'bg-white border border-gray-200 text-gray-900' : 'bg-neutral-900 border border-neutral-700 text-neutral-100'}>
+                          <SelectItem
+                            value="latest"
+                            className={cn(
+                              'rounded-lg px-3 py-2 text-sm',
+                              effectiveTheme === 'light' ? 'text-gray-900 data-[highlighted]:bg-gray-100' : 'text-neutral-100 data-[highlighted]:bg-neutral-800'
+                            )}
+                          >
+                            Versi Terbaru
+                          </SelectItem>
+                          {availableVersions.map((version) => (
+                            <SelectItem
+                              key={version}
+                              value={version.toString()}
+                              className={cn(
+                                'rounded-lg px-3 py-2 text-sm',
+                                effectiveTheme === 'light' ? 'text-gray-900 data-[highlighted]:bg-gray-100' : 'text-neutral-100 data-[highlighted]:bg-neutral-800'
+                              )}
+                            >
+                              Versi {version}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </div>
 
-              <div className="space-y-2">
-                <Label className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
-                  Pilih Versi Forecast
-                </Label>
-                <Select value={selectedVersion} onValueChange={setSelectedVersion}>
-                  <SelectTrigger className={cn(
-                    'h-11 rounded-2xl border-none px-4 text-base font-medium shadow-sm transition',
-                    effectiveTheme === 'light'
-                      ? 'bg-white/80 text-gray-900 focus:ring-2 focus:ring-primary/40'
-                      : 'bg-neutral-800/80 text-neutral-100 focus:ring-2 focus:ring-primary/60'
-                  )}>
-                    <SelectValue placeholder="Pilih Versi" />
-                  </SelectTrigger>
-                  <SelectContent className={effectiveTheme === 'light' ? 'bg-white border-gray-200' : 'bg-neutral-850 border-neutral-700'}>
-                    <SelectItem value="latest" className={effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}>
-                      Versi Terbaru
-                    </SelectItem>
-                    {availableVersions.map((version) => (
-                      <SelectItem key={version} value={version.toString()} className="rounded-lg px-3 py-2 text-sm">
-                        Versi {version}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {fallbackMonths.length > 0 && (
-                  <p className={`text-xs ${getSubTextColorClasses()}`}>
-                    Beberapa bulan tidak memiliki versi yang dipilih, sehingga menggunakan versi terbaru: {fallbackMonths.join(', ')}
-                  </p>
-                )}
-              </div>
+                  {fallbackMonths.length > 0 && (
+                    <p className={`text-xs ${getSubTextColorClasses()}`}>
+                      Beberapa bulan tidak memiliki versi yang dipilih, sehingga menggunakan versi terbaru: {fallbackMonths.join(', ')}
+                    </p>
+                  )}
                 </div>
                 {selectedSKUData && (
                   <div className={`grid w-full gap-2 rounded-2xl border px-4 py-3 text-sm backdrop-blur md:max-w-sm ${
@@ -639,6 +790,14 @@ const isLight = effectiveTheme === 'light'
                     <div className="flex items-center justify-between">
                       <span className="text-xs uppercase tracking-wide text-muted-foreground">Order</span>
                       <span className="font-medium">{selectedSKUData.order}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground">Ship To Aktif</span>
+                      <span className="font-medium">
+                        {shipToSelectValue === 'all'
+                          ? 'Semua'
+                          : shipToOptions.find((shipTo) => shipTo.id === shipToSelectValue)?.code ?? '-'}
+                      </span>
                     </div>
                   </div>
                 )}
@@ -669,7 +828,7 @@ const isLight = effectiveTheme === 'light'
                         ? 'bg-gray-100 border-gray-200 text-gray-900' 
                         : 'bg-neutral-800 border-neutral-700 text-neutral-100'
                     }`}>
-                      Order
+                      Order / Ship To
                     </th>
                     {months.map((month) => (
                       <th key={month} className={`px-3 py-2 border-b whitespace-nowrap ${
@@ -690,16 +849,21 @@ const isLight = effectiveTheme === 'light'
                           ? 'bg-white border-gray-200 text-gray-900' 
                           : 'bg-neutral-900 border-neutral-800 text-neutral-100'
                       }`}>
-                        <div>
-                          <div>{row.orderDate}</div>
-                          <div className={`text-xs ${getSubTextColorClasses()}`}>
+                        <div className="flex flex-col gap-1">
+                          <span>{row.orderDate}</span>
+                          <span className={`text-xs ${getSubTextColorClasses()}`}>
+                            Ship To: {row.shipToCode ?? 'Tidak ada' }
+                            {row.shipToName ? ` • ${row.shipToName}` : ''}
+                          </span>
+                          <span className={`text-xs ${getSubTextColorClasses()}`}>
                             {row.firstMonth} - {row.lastMonth}
-                          </div>
+                          </span>
                         </div>
                       </td>
                       {row.values.map((v, j) => {
                         // Calculate delta against previous row for this month
-                        const prev = i > 0 ? stairData[i - 1].values[j] : null
+                        const prevRow = i > 0 && stairData[i - 1].shipToCode === row.shipToCode ? stairData[i - 1] : null
+                        const prev = prevRow ? prevRow.values[j] : null
                         const delta = calcDelta(v, prev)
 
                         // Check if this column is within the active range for this order
@@ -714,7 +878,7 @@ const isLight = effectiveTheme === 'light'
 
                         // Dynamic background colors based on theme
                         const getBgColor = () => {
-                          if (v) {
+                          if (v != null) {
                             return effectiveTheme === 'light' ? '#f3f4f6' : '#202020'
                           }
                           // Empty cells always white in light theme

@@ -40,6 +40,7 @@ model SKU {
   updatedAt  DateTime @updatedAt
 
   forecastEntries ForecastEntry[]
+  shipTos         ShipTo[]
 }
 
 model ForecastVersion {
@@ -59,6 +60,7 @@ model ForecastEntry {
   id                String   @id @default(cuid())
   forecastVersionId String
   skuId             String
+  shipToId          String?
   orderMonth        DateTime
   value             Int
   createdAt         DateTime @default(now())
@@ -66,7 +68,24 @@ model ForecastEntry {
 
   forecastVersion ForecastVersion @relation(fields: [forecastVersionId], references: [id], onDelete: Cascade)
   sku             SKU             @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  shipTo          ShipTo?         @relation(fields: [shipToId], references: [id], onDelete: SetNull)
 
-  @@unique([forecastVersionId, skuId, orderMonth])
+  @@unique([forecastVersionId, skuId, shipToId, orderMonth])
   @@index([skuId, orderMonth])
+  @@index([shipToId])
+}
+
+model ShipTo {
+  id        String   @id @default(cuid())
+  skuId     String
+  code      String
+  name      String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  sku             SKU             @relation(fields: [skuId], references: [id], onDelete: Cascade)
+  forecastEntries ForecastEntry[]
+
+  @@unique([skuId, code])
+  @@index([code])
 }

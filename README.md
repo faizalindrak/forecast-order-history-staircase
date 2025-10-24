@@ -7,6 +7,7 @@ Aplikasi web untuk memvisualisasikan dan mengelola forecast MRP dengan pola stai
 - **Stair Pattern** – Tabel forecast dalam pola diagonal berbasis snapshot `ORDER DATE`.
 - **Delta Mode** – Toggle untuk membandingkan nilai antar snapshot order.
 - **Versioning Forecast** – Setiap bulan forecast memiliki version number (mis. v10, v20) dengan selector versi dan fallback otomatis.
+- **Ship-To Granularity** – Satu SKU dapat memiliki beberapa tujuan pengiriman (ship-to) untuk analisis per lokasi.
 - **Searchable SKU Selector** – Dropdown dengan pencarian instan berdasarkan nomor part atau nama part.
 - **Halaman Upload Khusus** – `/upload` menyediakan form, ringkasan hasil proses, dan tombol unduh template.
 - **Template CSV Relatif** – Kolom `N` hingga `N+6` merepresentasikan bulan relatif terhadap `ORDER DATE`, ditambah kolom `ORDER VERSION` opsional.
@@ -50,7 +51,7 @@ Aplikasi web untuk memvisualisasikan dan mengelola forecast MRP dengan pola stai
 
 ## Seed Data
 
-Seed bawaan memuat beberapa SKU, setiap SKU memiliki beberapa `ORDER DATE` dengan versi forecast (mis. v10 & v20) untuk rentang Jul-24 s.d. Mei-25. Data ini menunjang uji coba selector versi, delta, dan ekspor.
+Seed bawaan memuat beberapa SKU, setiap SKU memiliki beberapa `ORDER DATE` dengan versi forecast (mis. v10 & v20) untuk rentang Jul-24 s.d. Mei-25, serta ship-to sampel (`ST-JKT`, `ST-SMG`, `ST-SBY`). Data ini menunjang uji coba selector versi, filter ship-to, delta, dan ekspor.
 
 ## Struktur Database
 
@@ -70,9 +71,16 @@ Seed bawaan memuat beberapa SKU, setiap SKU memiliki beberapa `ORDER DATE` denga
 - `id`
 - `forecastVersionId` → `ForecastVersion`
 - `skuId` → `SKU`
+- `shipToId` → `ShipTo`
 - `orderMonth` (DateTime UTC)
 - `value`
-- Unique constraint: (`forecastVersionId`, `skuId`, `orderMonth`)
+- Unique constraint: (`forecastVersionId`, `skuId`, `shipToId`, `orderMonth`)
+
+### ShipTo
+- `id`
+- `skuId` → `SKU`
+- `code` (unique per SKU)
+- `name` (opsional)
 
 ## API Ringkas
 
@@ -105,8 +113,9 @@ Memproses file CSV pada halaman upload.
 
 Format header:
 ```
-PART NUMBER,PART NAME,ORDER,ORDER DATE,ORDER VERSION,N,N+1,N+2,N+3,N+4,N+5,N+6
+PART NUMBER,PART NAME,ORDER,SHIP TO,ORDER DATE,ORDER VERSION,N,N+1,N+2,N+3,N+4,N+5,N+6
 ```
+- `SHIP TO` wajib diisi untuk mengidentifikasi tujuan pengiriman per SKU (gunakan kode unik per SKU, contoh: `ST-JKT`).
 - `ORDER VERSION` opsional (default 10 bila kosong).
 - Kolom `N` mewakili bulan order, `N+1` bulan berikutnya, dst.
 - Sistem mengonversi label relatif ke bulan kalender aktual.

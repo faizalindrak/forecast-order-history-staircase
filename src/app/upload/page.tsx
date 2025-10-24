@@ -11,6 +11,7 @@ import { useTheme } from 'next-themes'
 interface UploadSummary {
   skusCreated: number
   forecastEntriesCreated: number
+  shipTosCreated: number
   errors: string[]
 }
 
@@ -147,7 +148,7 @@ export default function UploadPage() {
           <CardContent className="space-y-4">
             <div>
               <Label htmlFor="file-upload" className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
-                Gunakan kolom: PART NUMBER, PART NAME, ORDER, ORDER DATE (format MMM-YY) dan ORDER VERSION (opsional).
+                Gunakan kolom: PART NUMBER, PART NAME, ORDER, SHIP TO, ORDER DATE (format MMM-YY) dan ORDER VERSION (opsional).
                 Kolom bulan gunakan pola N, N+1, ..., N+6 untuk merepresentasikan bulan relatif terhadap ORDER DATE.
               </Label>
               <Input
@@ -199,6 +200,7 @@ export default function UploadPage() {
                 <ul className="mt-2 space-y-1 list-disc pl-5">
                   <li>SKU baru: {summary.skusCreated}</li>
                   <li>Entry forecast baru: {summary.forecastEntriesCreated}</li>
+                  <li>Ship-to baru: {summary.shipTosCreated}</li>
                   {versionsUsed.length > 0 && (
                     <li>Versi digunakan: {versionsUsed.join(', ')}</li>
                   )}

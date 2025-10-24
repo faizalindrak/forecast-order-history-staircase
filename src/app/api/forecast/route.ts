@@ -56,14 +56,18 @@ export async function GET(request: NextRequest) {
     const { searchParams } = new URL(request.url)
     const skuId = searchParams.get('skuId')
     const versionParam = searchParams.get('version')
+    const shipToId = searchParams.get('shipToId')
 
     const requestedVersion = normalizeVersionParam(versionParam)
 
     const versions = await db.forecastVersion.findMany({
       include: {
         entries: {
-          where: skuId ? { skuId } : undefined,
-          include: { sku: true },
+          where: {
+            ...(skuId ? { skuId } : {}),
+            ...(shipToId ? { shipToId } : {}),
+          },
+          include: { sku: true, shipTo: true },
           orderBy: { orderMonth: 'asc' }
         }
       },
@@ -87,6 +91,7 @@ export async function GET(request: NextRequest) {
     const responseEntries: Array<{
       id: string
       skuId: string
+      shipToId: string | null
       orderDate: string
       month: string
       value: number
@@ -96,6 +101,11 @@ export async function GET(request: NextRequest) {
         partNumber: string
         partName: string
         order: string
+      }
+      shipTo?: {
+        id: string
+        code: string
+        name: string | null
       }
     }> = []
 
@@ -133,6 +143,7 @@ export async function GET(request: NextRequest) {
         responseEntries.push({
           id: entry.id,
           skuId: entry.skuId,
+          shipToId: entry.shipToId,
           orderDate: formatMonthLabel(entry.orderMonth),
           month: formatMonthLabel(targetVersion.month),
           value: entry.value,
@@ -143,6 +154,13 @@ export async function GET(request: NextRequest) {
                 partNumber: entry.sku.partNumber,
                 partName: entry.sku.partName,
                 order: entry.sku.order,
+              }
+            : undefined,
+          shipTo: entry.shipTo
+            ? {
+                id: entry.shipTo.id,
+                code: entry.shipTo.code,
+                name: entry.shipTo.name,
               }
             : undefined,
         })
@@ -177,11 +195,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { skuId, orderDate, month, version, value } = body
+    const { skuId, shipToId, orderDate, month, version, value } = body
 
-    if (!skuId || !orderDate || !month || value === undefined || version === undefined) {
+    if (!skuId || !shipToId || !orderDate || !month || value === undefined || version === undefined) {
       return NextResponse.json(
-        { error: 'Missing required fields: skuId, orderDate, month, version, value' },
+        { error: 'Missing required fields: skuId, shipToId, orderDate, month, version, value' },
         { status: 400 }
       )
     }
@@ -205,9 +223,10 @@ export async function POST(request: NextRequest) {
 
     const forecastEntry = await db.forecastEntry.upsert({
       where: {
-        forecastVersionId_skuId_orderMonth: {
+        forecastVersionId_skuId_shipToId_orderMonth: {
           forecastVersionId: versionRecord.id,
           skuId,
+          shipToId,
           orderMonth
         }
       },
@@ -215,18 +234,21 @@ export async function POST(request: NextRequest) {
       create: {
         forecastVersionId: versionRecord.id,
         skuId,
+        shipToId,
         orderMonth,
         value
       },
       include: {
         sku: true,
-        forecastVersion: true
+        forecastVersion: true,
+        shipTo: true
       }
     })
 
     return NextResponse.json({
       id: forecastEntry.id,
       skuId: forecastEntry.skuId,
+      shipToId: forecastEntry.shipToId,
       orderDate: formatMonthLabel(forecastEntry.orderMonth),
       month: formatMonthLabel(forecastEntry.forecastVersion.month),
       value: forecastEntry.value,
@@ -236,6 +258,11 @@ export async function POST(request: NextRequest) {
         partNumber: forecastEntry.sku.partNumber,
         partName: forecastEntry.sku.partName,
         order: forecastEntry.sku.order,
+      } : undefined,
+      shipTo: forecastEntry.shipTo ? {
+        id: forecastEntry.shipTo.id,
+        code: forecastEntry.shipTo.code,
+        name: forecastEntry.shipTo.name,
       } : undefined
     }, { status: 201 })
   } catch (error) {
@@ -264,9 +291,9 @@ export async function PUT(request: NextRequest) {
     let processed = 0
 
     for (const item of data) {
-      const { skuId, orderDate, month, version, value } = item
+      const { skuId, shipToId, orderDate, month, version, value } = item
 
-      if (!skuId || !orderDate || !month || version === undefined || value === undefined) {
+      if (!skuId || !shipToId || !orderDate || !month || version === undefined || value === undefined) {
         continue
       }
 
@@ -289,9 +316,10 @@ export async function PUT(request: NextRequest) {
 
       await db.forecastEntry.upsert({
         where: {
-          forecastVersionId_skuId_orderMonth: {
+          forecastVersionId_skuId_shipToId_orderMonth: {
             forecastVersionId: versionRecord.id,
             skuId,
+            shipToId,
             orderMonth
           }
         },
@@ -299,6 +327,7 @@ export async function PUT(request: NextRequest) {
         create: {
           forecastVersionId: versionRecord.id,
           skuId,
+          shipToId,
           orderMonth,
           value
         }

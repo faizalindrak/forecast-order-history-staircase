@@ -4,6 +4,13 @@ import { db } from '@/lib/db'
 export async function GET() {
   try {
     const skus = await db.sKU.findMany({
+      include: {
+        shipTos: {
+          orderBy: {
+            code: 'asc'
+          }
+        }
+      },
       orderBy: {
         partNumber: 'asc'
       }
@@ -22,7 +29,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
-    const { partNumber, partName, order } = body
+    const { partNumber, partName, order, shipTos } = body
 
     if (!partNumber || !partName || !order) {
       return NextResponse.json(
@@ -46,7 +53,15 @@ export async function POST(request: NextRequest) {
       data: {
         partNumber,
         partName,
-        order
+        order,
+        shipTos: Array.isArray(shipTos) && shipTos.length > 0
+          ? {
+              create: shipTos.map((shipTo: { code: string; name?: string }) => ({
+                code: shipTo.code,
+                name: shipTo.name ?? null,
+              }))
+            }
+          : undefined
       }
     })
 

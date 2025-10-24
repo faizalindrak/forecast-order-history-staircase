@@ -9,6 +9,7 @@ async function resetAndSeed() {
     // Reset database (delete all data)
     await prisma.forecastEntry.deleteMany()
     await prisma.forecastVersion.deleteMany()
+    await prisma.shipTo.deleteMany()
     await prisma.sKU.deleteMany()
     console.log('🗑️  Database reset completed')
     
