@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { MobileNav } from "@/components/mobile-nav";
+import { Sidebar } from "@/components/sidebar";
 import { Toaster } from "@/components/ui/toaster";
 import { ThemeProvider } from "@/components/theme-provider";
 
@@ -52,7 +54,13 @@ export default function RootLayout({
           enableSystem
           disableTransitionOnChange
         >
-          {children}
+          <div className="flex min-h-screen bg-background">
+            <Sidebar />
+            <div className="flex min-h-screen flex-1 flex-col">
+              <MobileNav />
+              <main className="flex-1 overflow-x-hidden">{children}</main>
+            </div>
+          </div>
           <Toaster />
         </ThemeProvider>
       </body>

@@ -27,6 +27,34 @@ const parseMonthLabel = (label: string): Date => {
   return new Date(Date.UTC(fullYear, monthIndex, 1))
 }
 
+const addMonths = (date: Date, months: number): Date => {
+  const result = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1))
+  result.setUTCMonth(result.getUTCMonth() + months)
+  return result
+}
+
+const resolveForecastMonth = (header: string, orderMonth: Date): Date => {
+  const normalized = header.trim().toUpperCase()
+
+  if (normalized === 'N') {
+    return orderMonth
+  }
+
+  const plusMatch = /^N\+(\d+)$/.exec(normalized)
+  if (plusMatch) {
+    const offset = Number(plusMatch[1])
+    return addMonths(orderMonth, offset)
+  }
+
+  const minusMatch = /^N-(\d+)$/.exec(normalized)
+  if (minusMatch) {
+    const offset = Number(minusMatch[1])
+    return addMonths(orderMonth, -offset)
+  }
+
+  return parseMonthLabel(header)
+}
+
 export async function POST(request: NextRequest) {
   try {
     const formData = await request.formData()
@@ -58,6 +86,10 @@ export async function POST(request: NextRequest) {
     }
 
     const headers = lines[0].split(',').map(h => h.trim())
+    const normalizedHeaders = headers.map(h => h.toUpperCase())
+
+    const orderVersionIndex = normalizedHeaders.findIndex((h, idx) => idx >= 4 && h.replace(/\s+/g, ' ') === 'ORDER VERSION')
+    const monthStartIndex = orderVersionIndex >= 0 ? orderVersionIndex + 1 : 4
     const dataRows = lines.slice(1)
 
     const results = {
@@ -66,23 +98,41 @@ export async function POST(request: NextRequest) {
       errors: [] as string[]
     }
 
+    const versionsUsed = new Set<number>()
     const processedSKUs = new Set()
 
     for (let i = 0; i < dataRows.length; i++) {
       try {
         const values = dataRows[i].split(',').map(v => v.trim())
         
-        if (values.length < 5) {
+        if (values.length < monthStartIndex + 1) {
           results.errors.push(`Row ${i + 2}: Insufficient columns`)
           continue
         }
 
-        const [partNumber, partName, order, orderDate, ...monthValues] = values
-        const monthHeaders = headers.slice(4) // Skip first 4 columns: PART NUMBER, PART NAME, ORDER, ORDER DATE
+        const partNumber = values[0]
+        const partName = values[1]
+        const order = values[2]
+        const orderDate = values[3]
+        const versionString = orderVersionIndex >= 0 ? values[orderVersionIndex] : undefined
+        const monthHeaders = headers.slice(monthStartIndex)
+        const monthValues = values.slice(monthStartIndex)
 
         if (!orderDate) {
           results.errors.push(`Row ${i + 2}: Missing order date`)
           continue
+        }
+
+        const orderMonth = parseMonthLabel(orderDate)
+
+        let resolvedVersion = defaultVersion
+        if (versionString && versionString.length > 0) {
+          const parsedVersion = Number(versionString)
+          if (Number.isNaN(parsedVersion) || parsedVersion < 0) {
+            results.errors.push(`Row ${i + 2}: Invalid order version '${versionString}'`)
+            continue
+          }
+          resolvedVersion = parsedVersion
         }
 
         let sku = await db.sKU.findUnique({
@@ -101,6 +151,7 @@ export async function POST(request: NextRequest) {
         }
 
         processedSKUs.add(sku.id)
+        versionsUsed.add(resolvedVersion)
 
         for (let j = 0; j < monthHeaders.length && j < monthValues.length; j++) {
           const monthLabel = monthHeaders[j].trim()
@@ -115,19 +166,24 @@ export async function POST(request: NextRequest) {
             continue
           }
 
-          const orderMonth = parseMonthLabel(orderDate)
-          const forecastMonth = parseMonthLabel(monthLabel)
+          let forecastMonth: Date
+          try {
+            forecastMonth = resolveForecastMonth(monthLabel, orderMonth)
+          } catch (err) {
+            results.errors.push(`Row ${i + 2}: ${err instanceof Error ? err.message : 'Invalid month header'}`)
+            continue
+          }
 
           const versionRecord = await db.forecastVersion.upsert({
             where: {
               month_version: {
                 month: forecastMonth,
-                version: defaultVersion
+                version: resolvedVersion
               }
             },
             create: {
               month: forecastMonth,
-              version: defaultVersion
+              version: resolvedVersion
             },
             update: {}
           })
@@ -162,7 +218,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       message: 'File processed successfully',
       results,
-      version: defaultVersion
+      version: defaultVersion,
+      versionsUsed: Array.from(versionsUsed).sort((a, b) => a - b)
     })
   } catch (error) {
     console.error('Error processing upload:', error)

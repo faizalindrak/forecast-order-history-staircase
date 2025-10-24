@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { Switch } from '@/components/ui/switch'
-import { Upload, Download, RefreshCw, Sun, Moon } from 'lucide-react'
+import { SkuSelect } from '@/components/sku-select'
+import { cn } from '@/lib/utils'
+import { Download, RefreshCw, Sun, Moon } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import * as XLSX from 'xlsx-js-style'
 
@@ -75,7 +75,6 @@ export default function Home() {
   const [fallbackMonths, setFallbackMonths] = useState<string[]>([])
   const [deltaMode, setDeltaMode] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
   const [mounted, setMounted] = useState(false)
   const { theme, resolvedTheme, setTheme } = useTheme()
 
@@ -297,71 +296,6 @@ const isLight = effectiveTheme === 'light'
   const calcDelta = (val: number | null, prevVal: number | null) => {
     if (val == null || prevVal == null) return null
     return val - prevVal
-  }
-
-  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    if (file) {
-      setUploadFile(file)
-    }
-  }
-
-  const handleUploadSubmit = async () => {
-    if (!uploadFile) return
-    
-    setIsLoading(true)
-    try {
-      const formData = new FormData()
-      formData.append('file', uploadFile)
-
-      const response = await fetch('/api/upload', {
-        method: 'POST',
-        body: formData
-      })
-
-      if (response.ok) {
-        const contentType = response.headers.get('content-type') || ''
-        const isJson = contentType.includes('application/json')
-        const result = isJson ? await response.json() : await response.text()
-        console.log('Upload successful:', result)
-        
-        // Reload data
-        const skusResponse = await fetch('/api/skus')
-        if (skusResponse.ok) {
-          const data = await skusResponse.json()
-          setSkuList(data)
-
-          if (selectedSKU) {
-            await fetchForecastData(selectedSKU, selectedVersion)
-          }
-        }
-        
-        // Reset file input
-        setUploadFile(null)
-        const fileInput = document.getElementById('file-upload') as HTMLInputElement
-        if (fileInput) fileInput.value = ''
-      } else {
-        const contentType = response.headers.get('content-type') || ''
-        const isJson = contentType.includes('application/json')
-        const errorResponse = response.clone()
-        let errorDetail: unknown
-        try {
-          errorDetail = isJson ? await errorResponse.json() : await errorResponse.text()
-        } catch {
-          // Fallback when server returns invalid JSON or an HTML error page
-          try {
-            errorDetail = await errorResponse.text()
-          } catch {
-            errorDetail = 'Unknown error response format'
-          }
-        }
-        console.error('Upload failed:', errorDetail)
-      }
-    } catch (error) {
-      console.error('Upload error:', error)
-    } finally {
-      setIsLoading(false)
-    }
   }
 
   const handleRefresh = async () => {
@@ -622,52 +556,60 @@ const isLight = effectiveTheme === 'light'
         </div>
 
         {/* Controls */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="space-y-4">
           {/* SKU Selection */}
-          <Card className={getCardClasses()}>
-            <CardHeader>
-              <CardTitle className={`text-lg ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
-                Select SKU
+          <Card className={cn(
+            getCardClasses(),
+            'relative overflow-hidden border-none bg-gradient-to-br from-primary/10 via-primary/5 to-transparent shadow-lg'
+          )}>
+            <div className="pointer-events-none absolute inset-0 opacity-20"
+                 style={{
+                   backgroundImage: 'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0, transparent 45%), radial-gradient(circle at 80% 0%, rgba(255,255,255,0.2) 0, transparent 55%)'
+                 }}
+            />
+            <CardHeader className="space-y-1 pb-3">
+              <p className="text-xs uppercase tracking-widest text-muted-foreground">Pilih SKU</p>
+              <CardTitle className={`text-2xl font-semibold ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
+                Fokus Analisa SKU
               </CardTitle>
+              <p className={`text-sm ${effectiveTheme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
+                Filter data staircase berdasarkan SKU dan versi forecast pilihanmu.
+              </p>
             </CardHeader>
-            <CardContent>
-              <Select value={selectedSKU} onValueChange={setSelectedSKU}>
-                <SelectTrigger className={effectiveTheme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}>
-                  <SelectValue placeholder="Choose SKU" />
-                </SelectTrigger>
-                <SelectContent className={effectiveTheme === 'light' ? 'bg-white border-gray-300' : 'bg-neutral-800 border-neutral-700'}>
-                  {skuList.map((sku) => (
-                    <SelectItem key={sku.id} value={sku.id} className={effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}>
-                      {sku.partNumber} - {sku.partName}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {selectedSKUData && (
-                <div className={`mt-3 text-sm ${effectiveTheme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
-                  <p><strong>Part Number:</strong> {selectedSKUData.partNumber}</p>
-                  <p><strong>Part Name:</strong> {selectedSKUData.partName}</p>
-                  <p><strong>Order:</strong> {selectedSKUData.order}</p>
-                </div>
-              )}
-              <div className="mt-4 space-y-2">
+            <CardContent className="pt-0">
+              <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                <div className="flex w-full flex-col gap-3 md:max-w-xl">
+                  <SkuSelect
+                    value={selectedSKU}
+                    onChange={setSelectedSKU}
+                    options={skuList.map((sku) => ({
+                      id: sku.id,
+                      label: sku.partNumber,
+                      description: sku.partName,
+                    }))}
+                    placeholder="Cari atau pilih SKU"
+                  />
+
+
+              <div className="space-y-2">
                 <Label className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
                   Pilih Versi Forecast
                 </Label>
                 <Select value={selectedVersion} onValueChange={setSelectedVersion}>
-                  <SelectTrigger className={effectiveTheme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}>
+                  <SelectTrigger className={cn(
+                    'h-11 rounded-2xl border-none px-4 text-base font-medium shadow-sm transition',
+                    effectiveTheme === 'light'
+                      ? 'bg-white/80 text-gray-900 focus:ring-2 focus:ring-primary/40'
+                      : 'bg-neutral-800/80 text-neutral-100 focus:ring-2 focus:ring-primary/60'
+                  )}>
                     <SelectValue placeholder="Pilih Versi" />
                   </SelectTrigger>
-                  <SelectContent className={effectiveTheme === 'light' ? 'bg-white border-gray-300' : 'bg-neutral-800 border-neutral-700'}>
+                  <SelectContent className={effectiveTheme === 'light' ? 'bg-white border-gray-200' : 'bg-neutral-850 border-neutral-700'}>
                     <SelectItem value="latest" className={effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}>
                       Versi Terbaru
                     </SelectItem>
                     {availableVersions.map((version) => (
-                      <SelectItem
-                        key={version}
-                        value={version.toString()}
-                        className={effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}
-                      >
+                      <SelectItem key={version} value={version.toString()} className="rounded-lg px-3 py-2 text-sm">
                         Versi {version}
                       </SelectItem>
                     ))}
@@ -679,52 +621,31 @@ const isLight = effectiveTheme === 'light'
                   </p>
                 )}
               </div>
+                </div>
+                {selectedSKUData && (
+                  <div className={`grid w-full gap-2 rounded-2xl border px-4 py-3 text-sm backdrop-blur md:max-w-sm ${
+                    effectiveTheme === 'light'
+                      ? 'border-white/60 bg-white/70 text-gray-700'
+                      : 'border-neutral-700 bg-neutral-900/60 text-neutral-200'
+                  }`}>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground">Part Number</span>
+                      <span className="font-semibold">{selectedSKUData.partNumber}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground">Part Name</span>
+                      <span className="font-medium">{selectedSKUData.partName}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wide text-muted-foreground">Order</span>
+                      <span className="font-medium">{selectedSKUData.order}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
 
-          {/* Upload Data */}
-          <Card className={getCardClasses()}>
-            <CardHeader>
-              <CardTitle className={`text-lg ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
-                Upload Data
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div>
-                <Label htmlFor="file-upload" className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
-                  Choose CSV file
-                </Label>
-                <Input
-                  id="file-upload"
-                  type="file"
-                  accept=".csv"
-                  onChange={handleFileUpload}
-                  className={`mt-1 ${effectiveTheme === 'light' ? 'bg-white border-gray-300 text-gray-900' : 'bg-neutral-800 border-neutral-700 text-neutral-100'}`}
-                />
-              </div>
-              {uploadFile && (
-                <div className={`text-sm ${effectiveTheme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
-                  Selected: {uploadFile.name}
-                </div>
-              )}
-              <Button 
-                onClick={handleUploadSubmit} 
-                disabled={!uploadFile || isLoading}
-                className={`w-full ${
-                  effectiveTheme === 'light' 
-                    ? 'bg-gray-800 hover:bg-gray-700 text-white' 
-                    : 'bg-neutral-800 hover:bg-neutral-700 text-neutral-100'
-                }`}
-              >
-                {isLoading ? (
-                  <RefreshCw className="mr-2 h-4 w-4 animate-spin" />
-                ) : (
-                  <Upload className="mr-2 h-4 w-4" />
-                )}
-                {isLoading ? 'Uploading...' : 'Upload'}
-              </Button>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Stair Forecast Table */}
