@@ -426,6 +426,13 @@ const isLight = effectiveTheme === 'light'
 
     // Prepare Forecast data
     const allData: any[] = []
+
+    // Add description rows
+    allData.push(['Part Name:', activeSku.partName])
+    allData.push(['SKU:', activeSku.partNumber])
+    allData.push(['Month Range:', `${months[0]} - ${months[months.length - 1]}`])
+    allData.push([]) // blank row
+
     const headers = ['PART NUMBER', 'PART NAME', 'ORDER', 'SHIP TO', 'ORDER DATE', ...currentMonths]
     allData.push(headers)
 
@@ -499,6 +506,7 @@ const isLight = effectiveTheme === 'light'
     const deltaHeaderRow = forecastRows + 2            // 1-based row index for Delta header in Excel
     const deltaDataStartRow = forecastRows + 3         // 1-based start of Delta data
     const totalRows = combinedData.length
+    const headerRowIndex = 4  // 0-based index for headers (after 3 description + 1 blank)
     
     // Define borders
     const thinBorder = {
@@ -522,7 +530,7 @@ const isLight = effectiveTheme === 'light'
     }
     
     // Apply borders and alignment for Forecast (including header)
-    for (let r = 0; r < forecastRows; r++) {
+    for (let r = headerRowIndex; r < forecastRows; r++) {
       for (let c = 0; c < totalCols; c++) {
         const addr = ensureCell(r, c)
         const cell: any = ws[addr]
@@ -533,7 +541,7 @@ const isLight = effectiveTheme === 'light'
           cell.z = '#,##0'
         }
         // header bold
-        const isHeader = r === 0
+        const isHeader = r === headerRowIndex
         cell.s = {
           ...(cell.s || {}),
           border: thinBorder,
@@ -593,7 +601,8 @@ const isLight = effectiveTheme === 'light'
     // Build and download
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Forecast & Delta')
-    const fileName = `stair_forecast_data_${new Date().toISOString().split('T')[0]}.xlsx`
+    const sanitizeForFilename = (str: string) => str.replace(/[^a-zA-Z0-9_-]/g, '_')
+    const fileName = `STAIRCASE_FORECAST_${sanitizeForFilename(activeSku.partNumber)}_${sanitizeForFilename(activeSku.partName)}_${new Date().toISOString().split('T')[0]}.xlsx`
     XLSX.writeFile(wb, fileName)
   }
 
