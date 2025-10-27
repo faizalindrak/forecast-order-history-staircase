@@ -98,6 +98,8 @@ export default function Home() {
   const [forecastData, setForecastData] = useState<ForecastData[]>([])
   const [availableVersions, setAvailableVersions] = useState<number[]>([])
   const [selectedVersion, setSelectedVersion] = useState<string>('latest')
+  const [selectedStartMonth, setSelectedStartMonth] = useState<string>('')
+  const [selectedEndMonth, setSelectedEndMonth] = useState<string>('')
   const [fallbackMonths, setFallbackMonths] = useState<string[]>([])
   const [deltaMode, setDeltaMode] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
@@ -185,12 +187,21 @@ const isLight = effectiveTheme === 'light'
     return monthLabelToTimestamp(month1) - monthLabelToTimestamp(month2)
   }
 
-  // Generate dynamic months from forecast data
-  const months = useMemo(() => {
-    if (forecastData.length === 0) return [] as string[]
+  // Generate all available months from forecast data
+  const allMonths = useMemo(() => {
+    if (forecastData.length === 0) return []
     const uniqueMonths = Array.from(new Set(forecastData.map((d) => d.month)))
     return uniqueMonths.sort((a, b) => compareMonths(a, b))
   }, [forecastData])
+
+  const monthOptions = allMonths
+
+  // Generate dynamic months from forecast data, filtered by selected range
+  const months = useMemo(() => {
+    if (allMonths.length === 0) return []
+    if (!selectedStartMonth || !selectedEndMonth) return allMonths
+    return allMonths.filter(m => compareMonths(m, selectedStartMonth) >= 0 && compareMonths(m, selectedEndMonth) <= 0)
+  }, [allMonths, selectedStartMonth, selectedEndMonth])
 
   // Helper function untuk sorting order dates secara kronologis
   const sortOrderDates = (orderDates: string[]) => {
@@ -263,6 +274,14 @@ const isLight = effectiveTheme === 'light'
 
     loadData()
   }, [])
+
+  // Set default month range based on available data
+  useEffect(() => {
+    if (allMonths.length > 0) {
+      setSelectedStartMonth(allMonths[0])
+      setSelectedEndMonth(allMonths[allMonths.length - 1])
+    }
+  }, [allMonths])
 
   useEffect(() => {
     if (!selectedSKU) return
@@ -765,6 +784,76 @@ const isLight = effectiveTheme === 'light'
                               )}
                             >
                               Versi {version}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex-1 space-y-2">
+                      <Label className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
+                        Bulan Mulai
+                      </Label>
+                      <Select value={selectedStartMonth} onValueChange={(value) => {
+                        setSelectedStartMonth(value)
+                        if (compareMonths(value, selectedEndMonth) > 0) {
+                          setSelectedEndMonth(value)
+                        }
+                      }}>
+                        <SelectTrigger className={cn(
+                          'h-11 rounded-2xl border border-transparent px-4 text-base font-medium shadow-sm transition',
+                          effectiveTheme === 'light'
+                            ? 'bg-white text-gray-900 focus:border-primary/40 focus:ring-2 focus:ring-primary/40'
+                            : 'bg-neutral-850 text-neutral-100 focus:border-primary/60 focus:ring-2 focus:ring-primary/60'
+                        )}>
+                          <SelectValue placeholder="Bulan Mulai" />
+                        </SelectTrigger>
+                        <SelectContent className={effectiveTheme === 'light' ? 'bg-white border border-gray-200 text-gray-900' : 'bg-neutral-900 border border-neutral-700 text-neutral-100'}>
+                          {monthOptions.map((month) => (
+                            <SelectItem
+                              key={month}
+                              value={month}
+                              className={cn(
+                                'rounded-lg px-3 py-2 text-sm',
+                                effectiveTheme === 'light' ? 'text-gray-900 data-[highlighted]:bg-gray-100' : 'text-neutral-100 data-[highlighted]:bg-neutral-800'
+                              )}
+                            >
+                              {month}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+
+                    <div className="flex-1 space-y-2">
+                      <Label className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
+                        Bulan Akhir
+                      </Label>
+                      <Select value={selectedEndMonth} onValueChange={(value) => {
+                        setSelectedEndMonth(value)
+                        if (compareMonths(value, selectedStartMonth) < 0) {
+                          setSelectedStartMonth(value)
+                        }
+                      }}>
+                        <SelectTrigger className={cn(
+                          'h-11 rounded-2xl border border-transparent px-4 text-base font-medium shadow-sm transition',
+                          effectiveTheme === 'light'
+                            ? 'bg-white text-gray-900 focus:border-primary/40 focus:ring-2 focus:ring-primary/40'
+                            : 'bg-neutral-850 text-neutral-100 focus:border-primary/60 focus:ring-2 focus:ring-primary/60'
+                        )}>
+                          <SelectValue placeholder="Bulan Akhir" />
+                        </SelectTrigger>
+                        <SelectContent className={effectiveTheme === 'light' ? 'bg-white border border-gray-200 text-gray-900' : 'bg-neutral-900 border border-neutral-700 text-neutral-100'}>
+                          {monthOptions.map((month) => (
+                            <SelectItem
+                              key={month}
+                              value={month}
+                              className={cn(
+                                'rounded-lg px-3 py-2 text-sm',
+                                effectiveTheme === 'light' ? 'text-gray-900 data-[highlighted]:bg-gray-100' : 'text-neutral-100 data-[highlighted]:bg-neutral-800'
+                              )}
+                            >
+                              {month}
                             </SelectItem>
                           ))}
                         </SelectContent>
