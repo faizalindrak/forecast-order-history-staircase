@@ -658,14 +658,10 @@ const isLight = effectiveTheme === 'light'
                    backgroundImage: 'radial-gradient(circle at 20% 20%, rgba(255,255,255,0.4) 0, transparent 45%), radial-gradient(circle at 80% 0%, rgba(255,255,255,0.2) 0, transparent 55%)'
                  }}
             />
-            <CardHeader className="space-y-1 pb-3">
-              <p className="text-xs uppercase tracking-widest text-muted-foreground">Pilih SKU</p>
+            <CardHeader className="space-y-1 pb-2">
               <CardTitle className={`text-2xl font-semibold ${effectiveTheme === 'light' ? 'text-gray-900' : 'text-neutral-100'}`}>
-                Fokus Analisa SKU
+                Pilih SKU
               </CardTitle>
-              <p className={`text-sm ${effectiveTheme === 'light' ? 'text-gray-600' : 'text-neutral-400'}`}>
-                Filter data staircase berdasarkan SKU dan versi forecast pilihanmu.
-              </p>
             </CardHeader>
             <CardContent className="pt-0">
               <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">

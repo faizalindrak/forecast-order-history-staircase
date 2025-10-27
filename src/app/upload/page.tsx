@@ -148,16 +148,12 @@ export default function UploadPage() {
           </CardHeader>
           <CardContent className="space-y-4">
             <div>
-              <Label htmlFor="file-upload" className={effectiveTheme === 'light' ? 'text-gray-700' : 'text-neutral-300'}>
-                Gunakan kolom: PART NUMBER, PART NAME, ORDER, SHIP TO, SHIP TO NAME (opsional), ORDER DATE (format MMM-YY) dan ORDER VERSION (opsional).
-                Kolom bulan gunakan pola N, N+1, ..., N+6 untuk merepresentasikan bulan relatif terhadap ORDER DATE.
-              </Label>
               <Input
                 id="file-upload"
                 type="file"
                 accept=".csv"
                 onChange={handleFileUpload}
-                className={`mt-2 ${getInputClasses()}`}
+                className={getInputClasses()}
               />
             </div>
 

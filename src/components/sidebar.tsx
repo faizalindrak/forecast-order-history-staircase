@@ -41,7 +41,7 @@ export function Sidebar() {
       </nav>
 
       <div className="mt-auto pt-10 text-xs text-muted-foreground">
-        &copy; {new Date().getFullYear()} Stair Forecast Platform
+        &copy; {new Date().getFullYear()} Faizal Kusmawan
       </div>
     </aside>
   )
